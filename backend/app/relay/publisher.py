@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import tempfile
 import time
 from collections.abc import Sequence
@@ -10,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from telegram import Bot, InputMediaAudio, InputMediaDocument, InputMediaPhoto, InputMediaVideo
+from telegram import (
+    Bot,
+    InputMediaAudio,
+    InputMediaDocument,
+    InputMediaPhoto,
+    InputMediaVideo,
+    LinkPreviewOptions,
+)
 from telegram.error import RetryAfter
 
 from app.models import Source
@@ -65,9 +73,11 @@ class Publisher:
         self.send_interval_seconds = send_interval_seconds
         self._send_lock = asyncio.Lock()
         self._last_send_at = 0.0
+        self._logger = logging.getLogger(__name__)
 
     async def publish(self, source: Source, messages: Sequence[Any]) -> PublishResult:
         """Transform and send one message or one album through Bot API."""
+        started_at = time.monotonic()
         if not messages:
             return PublishResult("skipped", "empty_batch")
         config = await self.settings.get()
@@ -99,8 +109,16 @@ class Publisher:
             if media:
                 await self._publish_media(config.target_chat_id, media, result.text)
             elif result.text:
+                self._logger.info(
+                    "text publish started: source_chat_id=%s source_message_id=%s",
+                    source.chat_id,
+                    _first_id(messages),
+                )
                 await self._send_with_retry(
-                    self.bot.send_message, config.target_chat_id, result.text
+                    self.bot.send_message,
+                    config.target_chat_id,
+                    result.text,
+                    link_preview_options=LinkPreviewOptions(is_disabled=True),
                 )
             else:
                 return await self._skip(source, messages, "empty_after_cleaning")
@@ -119,6 +137,12 @@ class Publisher:
             source_message_id=_first_id(messages),
             event_type="publish",
             status="success",
+        )
+        self._logger.info(
+            "publish completed: source_chat_id=%s source_message_id=%s elapsed_ms=%d",
+            source.chat_id,
+            _first_id(messages),
+            int((time.monotonic() - started_at) * 1000),
         )
         return PublishResult("published", message_count=len(messages))
 
@@ -192,6 +216,10 @@ class Publisher:
                 try:
                     result = await method(*args, **kwargs)
                 except RetryAfter as exc:
+                    self._logger.warning(
+                        "Telegram Bot API requested retry: retry_after_seconds=%s",
+                        exc.retry_after,
+                    )
                     if attempt >= self.retry_after_retries:
                         raise
                     await asyncio.sleep(exc.retry_after)
@@ -204,6 +232,9 @@ class Publisher:
         elapsed = time.monotonic() - self._last_send_at
         remaining = self.send_interval_seconds - elapsed
         if remaining > 0:
+            self._logger.info(
+                "send rate limit waiting: wait_ms=%d", int(remaining * 1000)
+            )
             await asyncio.sleep(remaining)
 
     async def _skip(

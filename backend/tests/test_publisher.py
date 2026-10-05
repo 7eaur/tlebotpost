@@ -27,11 +27,13 @@ class FakeReaderClient:
 class FakeBot:
     def __init__(self):
         self.sent_messages = []
+        self.sent_message_options = []
         self.sent_photos = []
         self.sent_groups = []
 
-    async def send_message(self, target, text):
+    async def send_message(self, target, text, **kwargs):
         self.sent_messages.append((target, text))
+        self.sent_message_options.append(kwargs)
 
     async def send_photo(self, target, photo, caption=None):
         self.sent_photos.append((target, photo.read(), caption))
@@ -85,6 +87,7 @@ def test_publisher_uses_bot_api_for_text_and_media(tmp_path):
         )
         assert text_result.published
         assert bot.sent_messages == [(-1002, "خبر 🔥\n\nحقوقنا\nhttps://t.me/ours")]
+        assert bot.sent_message_options[0]["link_preview_options"].is_disabled is True
 
         media_result = await publisher.publish(
             source(), [message(2, "صورة", media="photo-a", photo=object())]
