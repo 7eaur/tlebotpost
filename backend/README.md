@@ -1,6 +1,6 @@
 # Backend
 
-هذه الحزمة هي أساس Telegram Channel Relay. في Phase 1 تحتوي على إعدادات البيئة، SQLite خفيفة، واختبارات أولية فقط. لم يتم ربط Listener أو Control Bot بعد.
+هذه الحزمة هي أساس Telegram Channel Relay. تحتوي حاليًا على إعدادات البيئة، SQLite خفيفة، وRepositories منفصلة للمصادر والإعدادات وسجل الأحداث. لم يتم ربط Listener أو Control Bot بعد.
 
 ## تشغيل محلي
 

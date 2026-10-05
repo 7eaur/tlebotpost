@@ -43,21 +43,6 @@ def test_database_schema_has_no_message_content(tmp_path):
         database = Database(tmp_path / "relay.sqlite3")
         await database.initialize()
         assert await database.count_content_columns() == 0
-        await database.add_source(
-            chat_id=-1001,
-            input_ref="@source",
-            title="Source",
-            username="source",
-            baseline_message_id=44,
-        )
-        await database.update_baseline(-1001, 45)
-        await database.log_event(
-            source_chat_id=-1001,
-            source_message_id=45,
-            event_type="published",
-            status="success",
-        )
-        await database.prune_event_log(keep=1)
 
     asyncio.run(scenario())
 

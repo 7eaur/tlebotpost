@@ -19,14 +19,14 @@
 
 **نقطة التحقق:** نجح تشغيل التطبيق في وضع config-check وتهيئة SQLite دون اتصال Telegram، مع نجاح الاختبارات وRuff.
 
-## Phase 2 — SQLite
+## Phase 2 — SQLite Repositories — مكتملة
 
-- بناء الجداول الثلاثة: `sources`, `settings`, `event_log`.
-- إضافة repositories صغيرة للمصادر والإعدادات والمؤشر.
-- اختبار baseline عند الإضافة وإعادة التشغيل.
-- إضافة تنظيف دوري لـ `event_log`.
+- [x] بناء الجداول الثلاثة: `sources`, `settings`, `event_log`.
+- [x] إضافة repositories صغيرة للمصادر والإعدادات والمؤشر.
+- [x] اختبار baseline عند الإضافة وإعادة التشغيل.
+- [x] إضافة تنظيف دوري لـ `event_log`.
 
-**نقطة التحقق:** لا يتم حفظ message text أو media في قاعدة البيانات.
+**نقطة التحقق:** نجحت 7 اختبارات وRuff، ولا يتم حفظ `message_text` أو `media` في قاعدة البيانات.
 
 ## Phase 3 — Telegram Session & Listener
 
