@@ -37,8 +37,8 @@ async def run() -> None:
     settings_repository = SettingsRepository(database)
     event_repository = EventLogRepository(database)
     await settings_repository.update_branding(
-        brand_footer=settings.brand_footer,
-        brand_link=settings.brand_link,
+        footer=settings.brand_footer,
+        link=settings.brand_link,
     )
     await settings_repository.sync_environment_defaults(
         brand_footer=settings.brand_footer,
