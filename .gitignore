@@ -1,67 +1,32 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
-output
-*.local
-package-lock.json
-playwright-report
-test-results
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-package.json.[0-9]*
-.sync
-history/*.json
-.vite_cache
-
 # Python
 __pycache__/
 *.py[cod]
-*.egg-info/
 .venv/
 venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Environment and sensitive data
+# Environment and secrets
 .env
-.env.local
-.env.*.local
-
-# Application data
+.env.*
+!.env.example
 *.session
 *.session-journal
+*.session-shm
+*.session-wal
+
+# Runtime data
 data/
-session.enc
-
-# SSH keys and secrets
-.ssh/
-*.pem
-*.key
-
-# Runtime and platform artifacts
-/.skills
-/tasks
-.native-wind-cache
-historical_context.txt
-.sync
-.history
-
-# Local scripts/log
+logs/
 *.log
-local/
+
+# Frontend/build artifacts
+dist/
+build/
+node_modules/
+
+# Editors
+.vscode/
+.idea/
+.DS_Store
