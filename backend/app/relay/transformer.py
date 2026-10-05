@@ -96,10 +96,16 @@ class ContentTransformer:
             if self._is_configured_branding_line(line):
                 continue
             line = _URL_RE.sub("", line)
-            line = _EMOJI_RE.sub("", line)
-            line = re.sub(r"[ \t]+", " ", line).strip()
-            if line:
+            line = re.sub(r"[ \t]{2,}", " ", line)
+            line = line.rstrip()
+            if line.strip():
                 lines.append(line)
+            elif lines and lines[-1] != "":
+                lines.append("")
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
         lines = self._remove_repeated_plain_signatures(lines)
         return "\n".join(lines).strip()
 
@@ -111,15 +117,26 @@ class ContentTransformer:
         for index in reversed(separator_indexes):
             tail = lines[index + 1 :]
             if any(_TELEGRAM_URL_RE.search(line) for line in tail):
-                return index
+                return self._footer_block_start(lines, index)
             normalized_tail = [line.strip() for line in tail if line.strip()]
             if any(
                 _PLAIN_SIGNATURE_RE.fullmatch(line)
                 and normalized_tail.count(line) >= 2
                 for line in normalized_tail
             ):
-                return index
+                return self._footer_block_start(lines, index)
         return None
+
+    @staticmethod
+    def _footer_block_start(lines: Sequence[str], separator_index: int) -> int:
+        """Include standalone decorative symbols immediately before the separator."""
+        start = separator_index
+        while start > 0:
+            candidate = lines[start - 1].strip()
+            if not candidate or re.search(r"[\w\u0600-\u06ff]", candidate):
+                break
+            start -= 1
+        return start
 
     @staticmethod
     def _remove_repeated_plain_signatures(lines: list[str]) -> list[str]:
@@ -165,4 +182,5 @@ class ContentTransformer:
         branding = [part for part in (self.settings.brand_footer, self.settings.brand_link) if part]
         if not branding:
             return text
-        return "\n\n".join(part for part in (text, *branding) if part).strip()
+        branding_text = "\n".join(branding)
+        return "\n\n".join(part for part in (text, branding_text) if part).strip()

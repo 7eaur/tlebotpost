@@ -8,7 +8,7 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any
 
-from telegram import ReplyKeyboardMarkup, Update
+from telegram import BotCommand, ReplyKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from app.control.errors import friendly_error
@@ -35,6 +35,27 @@ class ControlBot:
     BUTTON_STOP = "إيقاف"
     BUTTON_HELP = "المساعدة"
     BUTTON_CANCEL = "إلغاء"
+
+    COMMANDS = (
+        ("start", "فتح القائمة الرئيسية"),
+        ("help", "دليل الأوامر حسب الأقسام"),
+        ("status", "عرض حالة النظام"),
+        ("run", "تشغيل المراقبة"),
+        ("pause", "إيقاف المراقبة"),
+        ("manage_sources", "إدارة المصادر"),
+        ("sources", "عرض المصادر"),
+        ("addsource", "إضافة مصدر"),
+        ("removesource", "حذف مصدر"),
+        ("source_on", "تفعيل مصدر"),
+        ("source_off", "إيقاف مصدر"),
+        ("settarget", "تحديد القناة الهدف"),
+        ("login", "بدء تسجيل جلسة الحساب"),
+        ("login_code", "إرسال رمز تسجيل الدخول"),
+        ("include", "ضبط كلمات التضمين"),
+        ("exclude", "ضبط كلمات الاستبعاد"),
+        ("mediatypes", "ضبط أنواع الوسائط"),
+        ("cancel", "إلغاء الخطوة الحالية"),
+    )
 
     def __init__(
         self,
@@ -90,12 +111,20 @@ class ControlBot:
         await self._reply(
             update,
             "مرحبًا بك في نظام إعادة النشر اللحظي.\n\n"
-            "ابدأ بالترتيب التالي:\n"
-            "1) سجّل جلسة الحساب\n"
-            "2) أضف قناة مصدر\n"
-            "3) حدّد القناة الهدف\n"
-            "4) اضغط تشغيل\n\n"
-            "استخدم الأزرار أو /help للمساعدة.",
+            "شجرة التشغيل المختصرة:\n"
+            "├─ 1. الحساب\n"
+            "│  └─ تسجيل جلسة Telegram\n"
+            "├─ 2. المصادر\n"
+            "│  ├─ إضافة / حذف / تفعيل / إيقاف\n"
+            "│  └─ عرض وإدارة المصادر\n"
+            "├─ 3. الوجهة\n"
+            "│  └─ تحديد القناة الهدف\n"
+            "├─ 4. الفلاتر\n"
+            "│  └─ كلمات وأنواع الوسائط\n"
+            "└─ 5. التشغيل\n"
+            "   ├─ تشغيل\n"
+            "   └─ إيقاف مؤقت\n\n"
+            "استخدم /help لرؤية الأوامر كاملة حسب القسم.",
         )
 
     async def help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,23 +132,33 @@ class ControlBot:
             return
         await self._reply(
             update,
-            "دليل الاستخدام المتسلسل:\n\n"
-            "1️⃣ /login ثم أرسل رقم الهاتف الدولي\n"
-            "2️⃣ أرسل رمز Telegram عبر /login_code\n"
-            "3️⃣ /addsource ثم أرسل @channel أو رابط t.me\n"
-            "4️⃣ /settarget ثم أرسل @channel أو رابطها\n"
-            "5️⃣ /run لبدء المراقبة\n\n"
-            "أوامر الإدارة:\n"
-            "/status — الحالة الحالية\n"
-            "/sources — قائمة المصادر\n"
-            "/source_on و /source_off — تفعيل/إيقاف مصدر\n"
-            "/removesource — حذف مصدر\n"
-            "/include و /exclude — فلاتر الكلمات\n"
-            "/mediatypes — أنواع الوسائط\n"
-            "/pause — إيقاف آمن\n"
-            "/cancel — إلغاء الخطوة الحالية\n\n"
-            "يمكنك إرسال الرابط كاملًا مثل https://t.me/example، "
-            "وليس مطلوبًا حفظ الأوامر في كل مرة؛ الأزرار تفتح الخطوة التالية.",
+            "🌳 شجرة أوامر Telegram Channel Relay\n\n"
+            "├─ 🏠 عام وتشغيل\n"
+            "│  ├─ /start — القائمة الرئيسية\n"
+            "│  ├─ /status — الحالة والاتصال والمصادر\n"
+            "│  ├─ /run — تشغيل المراقبة\n"
+            "│  └─ /pause — إيقاف المراقبة بأمان\n\n"
+            "├─ 📚 المصادر\n"
+            "│  ├─ /sources — عرض كل المصادر وحالتها\n"
+            "│  ├─ /manage_sources — فتح إدارة المصادر\n"
+            "│  ├─ /addsource @channel — إضافة مصدر\n"
+            "│  ├─ /removesource @channel — حذف مصدر\n"
+            "│  ├─ /source_on @channel — تفعيل مصدر\n"
+            "│  └─ /source_off @channel — إيقاف مصدر مؤقتًا\n\n"
+            "├─ 🎯 الوجهة\n"
+            "│  └─ /settarget @channel — تحديد قناة النشر\n\n"
+            "├─ 🔐 جلسة الحساب\n"
+            "│  ├─ /login +967XXXXXXXXX — طلب رمز الدخول\n"
+            "│  └─ /login_code 12345 — إكمال الدخول\n"
+            "│     └─ إذا ظهر التحقق بخطوتين أرسل كلمة المرور عند طلبها\n\n"
+            "├─ 🧹 الفلاتر\n"
+            "│  ├─ /include خبر,تقنية — نشر ما يطابق الكلمات\n"
+            "│  ├─ /exclude إعلان — استبعاد ما يطابق الكلمات\n"
+            "│  └─ /mediatypes photo,video — تحديد أنواع الوسائط\n\n"
+            "└─ ↩️ مساعدة\n"
+            "   ├─ /cancel — إلغاء أي خطوة معلقة\n"
+            "   └─ /help — عرض هذه الشجرة\n\n"
+            "يمكن استخدام الأزرار بدل الأوامر. الروابط المقبولة: @channel أو رابط t.me.",
         )
 
     async def status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -487,6 +526,12 @@ class ControlBot:
         action = actions.get(text)
         if action:
             await action(update, context)
+        elif text == "🏠 القائمة الرئيسية":
+            await self.start(update, context)
+        elif text == "🎯 إعدادات الوجهة":
+            await self.set_target(update, SimpleNamespace(args=[]))
+        elif text == "🔐 الحساب":
+            await self.login(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_ADD_SOURCE:
             await self.add_source(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_TARGET:
@@ -625,13 +670,15 @@ class ControlBot:
     def keyboard(cls) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(
             [
+                ["🏠 القائمة الرئيسية", cls.BUTTON_HELP],
                 [cls.BUTTON_STATUS, cls.BUTTON_SOURCES],
                 [cls.BUTTON_MANAGE_SOURCES, cls.BUTTON_ADD_SOURCE],
                 [cls.BUTTON_REMOVE_SOURCE, cls.BUTTON_TARGET],
                 [cls.BUTTON_ENABLE_SOURCE, cls.BUTTON_DISABLE_SOURCE],
-                [cls.BUTTON_LOGIN, cls.BUTTON_FILTERS],
+                ["🎯 إعدادات الوجهة", cls.BUTTON_FILTERS],
+                [cls.BUTTON_LOGIN, "🔐 الحساب"],
                 [cls.BUTTON_START, cls.BUTTON_STOP],
-                [cls.BUTTON_HELP, cls.BUTTON_CANCEL],
+                [cls.BUTTON_CANCEL],
             ],
             resize_keyboard=True,
         )
@@ -642,6 +689,14 @@ class ControlBot:
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
+        try:
+            await application.bot.set_my_commands(
+                [BotCommand(command, description) for command, description in self.COMMANDS]
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "could not update Telegram command menu", exc_info=True
+            )
         await self._notify_started()
         await self._auto_start_relay()
         try:

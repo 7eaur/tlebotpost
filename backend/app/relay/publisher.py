@@ -76,7 +76,12 @@ class Publisher:
         if config.target_chat_id is None:
             raise PublisherConfigurationError("target channel is not configured")
 
-        media = [message for message in messages if getattr(message, "media", None) is not None]
+        media = [
+            message
+            for message in messages
+            if getattr(message, "media", None) is not None
+            and _media_type(message) != "webpage"
+        ]
         media_types = tuple(_media_type(message) for message in media)
         text = next(
             (
@@ -219,6 +224,11 @@ def _first_id(messages: Sequence[Any]) -> int | None:
 
 
 def _media_type(message: Any) -> str:
+    media = getattr(message, "media", None)
+    if media is not None and "webpage" in type(media).__name__.casefold():
+        return "webpage"
+    if getattr(media, "webpage", None) is not None:
+        return "webpage"
     for name in ("photo", "video", "audio", "voice", "document", "sticker"):
         if getattr(message, name, None) is not None:
             return name

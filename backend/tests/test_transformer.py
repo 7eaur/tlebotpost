@@ -19,14 +19,14 @@ def settings(**overrides) -> RelaySettings:
     return RelaySettings(**values)
 
 
-def test_transformer_removes_urls_rights_and_emoji():
+def test_transformer_removes_urls_and_rights_but_keeps_body_emoji():
     result = ContentTransformer(settings()).transform(
         "خبر مهم 🔥\nالمصدر: https://source.example\nتابع التفاصيل https://example.com/page"
     )
 
     assert result.should_publish
-    assert result.text == "خبر مهم\nتابع التفاصيل\n\nحقوقنا\n\nhttps://t.me/ours"
-    assert "🔥" not in result.text
+    assert result.text == "خبر مهم 🔥\nتابع التفاصيل\n\nحقوقنا\nhttps://t.me/ours"
+    assert "🔥" in result.text
     assert "source.example" not in result.text
 
 
@@ -38,7 +38,7 @@ def test_transformer_removes_trailing_source_signature_block():
         "🇾🇪 اخبار اليمن العاجلة 🇾🇪https://t.me/newsyemn"
     )
 
-    assert result.text == "خبر عاجل\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert result.text == "خبر عاجل 🔥\n\nحقوقنا\nhttps://t.me/ours"
     assert "newsyemn" not in result.text
     assert "اخبار اليمن" not in result.text
     assert "ــــــــ" not in result.text
@@ -49,7 +49,7 @@ def test_transformer_removes_telegram_links_without_dropping_regular_text():
         "تابع التفاصيل هنا https://t.me/source_channel وشاركها"
     )
 
-    assert result.text == "تابع التفاصيل هنا وشاركها\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert result.text == "تابع التفاصيل هنا وشاركها\n\nحقوقنا\nhttps://t.me/ours"
 
 
 def test_transformer_does_not_duplicate_our_configured_signature():
@@ -57,7 +57,7 @@ def test_transformer_does_not_duplicate_our_configured_signature():
         "خبر جديد\nحقوقنا\nhttps://t.me/ours"
     )
 
-    assert result.text == "خبر جديد\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert result.text == "خبر جديد\n\nحقوقنا\nhttps://t.me/ours"
 
 
 def test_transformer_removes_repeated_plain_source_stamp():
@@ -71,7 +71,7 @@ def test_transformer_removes_repeated_plain_source_stamp():
         "tlebotpost"
     )
 
-    assert result.text == "خبر عاجل\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert result.text == "خبر عاجل\n\nحقوقنا\nhttps://t.me/ours"
     assert "tlebotpost" not in result.text
 
 
@@ -98,7 +98,7 @@ def test_transformer_applies_include_exclude_and_media_filters():
     )
 
 
-def test_transformer_skips_empty_text_without_media():
+def test_transformer_keeps_emoji_only_text():
     result = ContentTransformer(settings()).transform("🔥 https://example.com")
-    assert result.should_publish is False
-    assert result.skipped_reason == "empty_after_cleaning"
+    assert result.should_publish
+    assert result.text == "🔥\n\nحقوقنا\nhttps://t.me/ours"
