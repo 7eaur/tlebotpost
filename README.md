@@ -39,3 +39,5 @@ legacy/smart-poster
 - [القرارات والهيكلية](docs/architecture.md)
 - [خطة التنفيذ](docs/implementation-plan.md)
 - [دليل التشغيل على الخادم](docs/operations.md)
+- [توثيق النسخة الحالية وطريقة نشرها](docs/current-system.md)
+- [خطة الانتقال إلى Cloudflare](docs/cloudflare-migration-plan.md)
