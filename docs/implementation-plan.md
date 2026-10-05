@@ -28,15 +28,15 @@
 
 **نقطة التحقق:** نجحت 7 اختبارات وRuff، ولا يتم حفظ `message_text` أو `media` في قاعدة البيانات.
 
-## Phase 3 — Telegram Session & Listener
+## Phase 3 — Telegram Session & Listener — مكتملة
 
-- تشغيل جلسة المستخدم وتسجيل الدخول.
-- إضافة/حل القنوات العامة والخاصة.
-- التقاط `NewMessage` فقط.
-- اعتماد baseline عند startup/reconnect.
-- تجميع الألبومات.
+- [x] إنشاء جلسة المستخدم وتسجيل الدخول القابل للتحكم.
+- [x] إضافة/حل القنوات العامة والخاصة عبر معرف Telegram.
+- [x] التقاط `NewMessage` فقط.
+- [x] اعتماد baseline عند startup/reconnect.
+- [ ] تجميع الألبومات — ينتقل إلى Phase 4 مع Publisher.
 
-**نقطة التحقق:** رسائل ما قبل baseline لا تصل إلى Publisher.
+**نقطة التحقق:** نجحت 10 اختبارات وRuff، ورسائل ما قبل baseline لا تصل إلى callback الخاص بالـ Publisher.
 
 ## Phase 4 — Transformer & Publisher
 
