@@ -1,6 +1,6 @@
 # Backend
 
-هذه الحزمة هي أساس Telegram Channel Relay. تحتوي حاليًا على إعدادات البيئة، SQLite خفيفة، وRepositories منفصلة للمصادر والإعدادات وسجل الأحداث، إضافة إلى جلسة المستخدم وListener live-only وTransformer وPublisher ودعم الألبومات. لم يتم ربط Control Bot بعد.
+هذه الحزمة هي أساس Telegram Channel Relay. تحتوي حاليًا على إعدادات البيئة، SQLite خفيفة، وRepositories منفصلة للمصادر والإعدادات وسجل الأحداث، إضافة إلى جلسة المستخدم وListener live-only وTransformer وPublisher ودعم الألبومات وControl Bot مقيد بالمالك.
 
 ## تشغيل محلي
 

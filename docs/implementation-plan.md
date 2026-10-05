@@ -49,17 +49,17 @@
 
 **نقطة التحقق:** نجحت 16 اختبارًا وRuff؛ تم اختبار Publisher بعميل وهمي دون إرسال Telegram فعلي.
 
-## Phase 5 — Control Bot
+## Phase 5 — Control Bot — مكتملة
 
-- `/start`, `/help`, `/status`.
-- `/addsource`, `/removesource`, `/sources`.
-- `/settarget`, `/target`.
-- تفعيل/تعطيل المصدر.
-- pause/resume.
-- إعداد الفلاتر من الأزرار أو الأوامر.
-- قبول تسجيل الدخول من البوت بطريقة آمنة.
+- [x] `/start`, `/help`, `/status`.
+- [x] `/addsource`, `/removesource`, `/sources`.
+- [x] `/settarget`.
+- [x] تفعيل/تعطيل المصدر.
+- [x] تشغيل وإيقاف النظام.
+- [x] إعداد الفلاتر من الأزرار أو الأوامر.
+- [x] قبول تسجيل الدخول من البوت مع حالة مؤقتة في الذاكرة.
 
-**نقطة التحقق:** مستخدم غير `OWNER_ID` لا يستطيع تغيير أي إعداد.
+**نقطة التحقق:** نجحت 20 اختبارًا وRuff، وجميع أوامر التحكم تتحقق من `OWNER_ID`.
 
 ## Phase 6 — Tests & Operations
 
