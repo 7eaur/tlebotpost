@@ -96,6 +96,32 @@ class SettingsRepository:
             await connection.commit()
         return await self.get()
 
+    async def sync_environment_defaults(
+        self,
+        *,
+        brand_footer: str,
+        brand_link: str,
+        include_keywords: tuple[str, ...],
+        exclude_keywords: tuple[str, ...],
+    ) -> RelaySettings:
+        """Fill only empty database defaults; never overwrite bot-managed values."""
+        current = await self.get()
+        if not current.brand_footer and not current.brand_link:
+            current = await self.update_branding(brand_footer, brand_link)
+        if not current.include_keywords and include_keywords:
+            current = await self.update_filters(
+                include_keywords=include_keywords,
+                exclude_keywords=current.exclude_keywords or exclude_keywords,
+                allowed_media_types=current.allowed_media_types,
+            )
+        elif not current.exclude_keywords and exclude_keywords:
+            current = await self.update_filters(
+                include_keywords=current.include_keywords,
+                exclude_keywords=exclude_keywords,
+                allowed_media_types=current.allowed_media_types,
+            )
+        return current
+
 
 def _normalize_items(items: tuple[str, ...]) -> list[str]:
     return list(dict.fromkeys(item.strip() for item in items if item.strip()))

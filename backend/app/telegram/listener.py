@@ -12,7 +12,7 @@ from app.models import Source
 from app.relay.albums import AlbumCollector
 from app.repositories.sources import SourceRepository
 
-MessageBatchCallback = Callable[[Source, Sequence[Any]], Awaitable[None]]
+MessageBatchCallback = Callable[[Source, Sequence[Any]], Awaitable[Any]]
 
 
 class SourceListener:
@@ -53,16 +53,15 @@ class SourceListener:
     async def stop(self) -> None:
         """Stop accepting events, flush pending albums, and unregister the handler."""
         self._accept_events = False
-        await self.albums.close()
-        if self._running:
-            self.client.remove_event_handler(self._handler)
-        self._running = False
+        try:
+            await self.albums.close()
+        finally:
+            if self._running:
+                self.client.remove_event_handler(self._handler)
+            self._running = False
 
     async def rebaseline(self) -> None:
-        """Set every enabled source cursor to its current newest message id.
-
-        This is used at startup and after reconnect so downtime is never replayed.
-        """
+        """Set every enabled source cursor to its current newest message id."""
         self._accept_events = False
         for source in await self.sources.list(enabled_only=True):
             latest_id = await self._latest_message_id(source.chat_id)
@@ -85,7 +84,7 @@ class SourceListener:
         return getattr(messages, "id", 0) or 0
 
     async def _handle_event(self, event: Any) -> None:
-        """Queue one event only when it is newer than the stored baseline."""
+        """Queue one event and advance its cursor only after the batch succeeds."""
         if not self._accept_events:
             return
         message = getattr(event, "message", event)
@@ -101,5 +100,7 @@ class SourceListener:
                 return
             if message_id <= source.baseline_message_id:
                 return
-            await self.albums.add(source, message)
-            await self.sources.advance_baseline(chat_id, message_id)
+            completion = await self.albums.add(source, message)
+
+        await completion
+        await self.sources.advance_baseline(chat_id, message_id)

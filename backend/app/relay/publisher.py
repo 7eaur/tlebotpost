@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
+
+from telethon.errors import FloodWaitError
 
 from app.models import Source
 from app.relay.transformer import ContentTransformer
@@ -37,10 +40,14 @@ class Publisher:
         client: Any,
         settings: SettingsRepository,
         events: EventLogRepository,
+        flood_wait_retries: int = 3,
     ) -> None:
+        if flood_wait_retries < 0:
+            raise ValueError("flood_wait_retries must be non-negative")
         self.client = client
         self.settings = settings
         self.events = events
+        self.flood_wait_retries = flood_wait_retries
 
     async def publish(self, source: Source, messages: Sequence[Any]) -> PublishResult:
         """Publish one message or one collected album as a new message."""
@@ -70,13 +77,18 @@ class Publisher:
             if media:
                 files = [message.media for message in media]
                 file_argument: Any = files if len(files) > 1 else files[0]
-                await self.client.send_file(
-                    config.target_chat_id, file_argument, caption=result.text
+                await self._send_with_flood_wait(
+                    self.client.send_file,
+                    config.target_chat_id,
+                    file_argument,
+                    caption=result.text,
                 )
             else:
                 if not result.text:
                     return await self._skip(source, messages, "empty_after_cleaning")
-                await self.client.send_message(config.target_chat_id, result.text)
+                await self._send_with_flood_wait(
+                    self.client.send_message, config.target_chat_id, result.text
+                )
         except Exception as exc:
             await self.events.record(
                 source_chat_id=source.chat_id,
@@ -106,6 +118,18 @@ class Publisher:
             error_code=reason,
         )
         return PublishResult("skipped", reason, len(messages))
+
+    async def _send_with_flood_wait(self, method: Any, *args: Any, **kwargs: Any) -> Any:
+        for attempt in range(self.flood_wait_retries + 1):
+            try:
+                return await method(*args, **kwargs)
+            except FloodWaitError as exc:
+                if attempt >= self.flood_wait_retries:
+                    raise
+                wait_seconds = getattr(exc, "seconds", None)
+                if wait_seconds is None:
+                    raise
+                await asyncio.sleep(wait_seconds)
 
 
 def _first_id(messages: Sequence[Any]) -> int | None:

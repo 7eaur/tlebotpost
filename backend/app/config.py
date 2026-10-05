@@ -19,6 +19,30 @@ def _csv(value: str) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _float_csv(value: str, default: tuple[float, ...]) -> tuple[float, ...]:
+    if not value.strip():
+        return default
+    try:
+        values = tuple(float(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as exc:
+        raise ConfigurationError("RECONNECT_DELAYS must contain numbers") from exc
+    return values or default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be an integer") from exc
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be a number") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Validated runtime configuration for the relay service."""
@@ -34,6 +58,10 @@ class Settings:
     include_keywords: tuple[str, ...] = ()
     exclude_keywords: tuple[str, ...] = ()
     log_level: str = "INFO"
+    album_window_seconds: float = 0.8
+    flood_wait_retries: int = 3
+    reconnect_delays: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0)
+    event_log_keep: int = 1000
 
     @classmethod
     def from_env(cls, env_file: str | Path | None = ".env") -> Settings:
@@ -53,6 +81,12 @@ class Settings:
             "include_keywords": _csv(os.getenv("INCLUDE_KEYWORDS", "")),
             "exclude_keywords": _csv(os.getenv("EXCLUDE_KEYWORDS", "")),
             "log_level": os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
+            "album_window_seconds": _env_float("ALBUM_WINDOW_SECONDS", 0.8),
+            "flood_wait_retries": _env_int("FLOOD_WAIT_RETRIES", 3),
+            "reconnect_delays": _float_csv(
+                os.getenv("RECONNECT_DELAYS", ""), (5.0, 15.0, 30.0, 60.0)
+            ),
+            "event_log_keep": _env_int("EVENT_LOG_KEEP", 1000),
         }
         settings = cls(**values)
         settings.validate()
@@ -68,6 +102,14 @@ class Settings:
             raise ConfigurationError("BRAND_FOOTER or BRAND_LINK must be configured")
         if self.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigurationError("LOG_LEVEL must be a standard logging level")
+        if self.album_window_seconds <= 0:
+            raise ConfigurationError("ALBUM_WINDOW_SECONDS must be positive")
+        if self.flood_wait_retries < 0:
+            raise ConfigurationError("FLOOD_WAIT_RETRIES must be non-negative")
+        if not self.reconnect_delays or any(delay <= 0 for delay in self.reconnect_delays):
+            raise ConfigurationError("RECONNECT_DELAYS must be positive")
+        if self.event_log_keep < 0:
+            raise ConfigurationError("EVENT_LOG_KEEP must be non-negative")
 
 
 def _required(name: str) -> str:

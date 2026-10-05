@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,8 @@ class TelegramSession:
     def __init__(self, *, api_id: int, api_hash: str, session_path: str | Path) -> None:
         path = Path(session_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(path.parent, 0o700)
+        self.session_path = path
         self.client = TelegramClient(
             str(path),
             api_id,
@@ -36,6 +39,8 @@ class TelegramSession:
     async def connect(self, *, require_authorized: bool = True) -> TelegramClient:
         """Connect the client and optionally require an authorized user session."""
         await self.client.connect()
+        if self.session_path.exists():
+            os.chmod(self.session_path, 0o600)
         if require_authorized and not await self.client.is_user_authorized():
             raise TelegramSessionNotAuthorized(
                 "Telegram user session is not authorized; complete login first"

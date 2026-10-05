@@ -341,6 +341,19 @@ class ControlBot:
         if update.effective_message:
             await update.effective_message.reply_text(text, reply_markup=self.keyboard())
 
+    async def notify_owner(self, status: str) -> None:
+        """Send operational status to the owner when the bot is already running."""
+        if self.application is None:
+            return
+        messages = {
+            "telegram_disconnected": "تنبيه: انقطع اتصال حساب Telegram، ستتم محاولة الاستعادة.",
+            "telegram_reconnected": "تمت استعادة اتصال Telegram وإعادة ضبط نقطة البداية.",
+            "telegram_reconnect_retrying": "ما زال اتصال Telegram متوقفًا، ستستمر المحاولات.",
+        }
+        text = messages.get(status)
+        if text:
+            await self.application.bot.send_message(chat_id=self.owner_id, text=text)
+
     @classmethod
     def keyboard(cls) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(

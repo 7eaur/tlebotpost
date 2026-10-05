@@ -8,7 +8,8 @@ from typing import Any
 
 from app.models import Source
 
-AlbumCallback = Callable[[Source, list[Any]], Awaitable[None]]
+AlbumCallback = Callable[[Source, list[Any]], Awaitable[Any]]
+PendingAlbum = tuple[Source, list[Any], asyncio.Future[Any]]
 
 
 class AlbumCollector:
@@ -19,20 +20,23 @@ class AlbumCollector:
             raise ValueError("window_seconds must be positive")
         self.on_album = on_album
         self.window_seconds = window_seconds
-        self._pending: dict[tuple[int, int], tuple[Source, list[Any]]] = {}
+        self._pending: dict[tuple[int, int], PendingAlbum] = {}
         self._tasks: dict[tuple[int, int], asyncio.Task[None]] = {}
 
-    async def add(self, source: Source, message: Any) -> None:
-        """Queue an album item, or emit a normal message immediately."""
+    async def add(self, source: Source, message: Any) -> asyncio.Future[Any]:
+        """Queue an album item and return a future completed after publishing."""
+        loop = asyncio.get_running_loop()
         grouped_id = getattr(message, "grouped_id", None)
         if grouped_id is None:
-            await self.on_album(source, [message])
-            return
+            return loop.create_task(self.on_album(source, [message]))
+
         key = (source.chat_id, grouped_id)
         if key not in self._pending:
-            self._pending[key] = (source, [])
+            future: asyncio.Future[Any] = loop.create_future()
+            self._pending[key] = (source, [], future)
             self._tasks[key] = asyncio.create_task(self._flush_later(key))
         self._pending[key][1].append(message)
+        return self._pending[key][2]
 
     async def close(self) -> None:
         """Flush pending albums during a graceful shutdown."""
@@ -41,17 +45,32 @@ class AlbumCollector:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        pending = list(self._pending.values())
+
+        pending = list(self._pending.items())
         self._pending.clear()
         self._tasks.clear()
-        for source, messages in pending:
-            await self.on_album(source, messages)
+        for _key, (source, messages, future) in pending:
+            try:
+                result = await self.on_album(source, messages)
+            except Exception as exc:
+                if not future.done():
+                    future.set_exception(exc)
+            else:
+                if not future.done():
+                    future.set_result(result)
 
     async def _flush_later(self, key: tuple[int, int]) -> None:
         try:
             await asyncio.sleep(self.window_seconds)
-            source, messages = self._pending.pop(key)
+            source, messages, future = self._pending.pop(key)
             self._tasks.pop(key, None)
-            await self.on_album(source, messages)
+            try:
+                result = await self.on_album(source, messages)
+            except Exception as exc:
+                if not future.done():
+                    future.set_exception(exc)
+            else:
+                if not future.done():
+                    future.set_result(result)
         except asyncio.CancelledError:
             raise

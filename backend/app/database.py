@@ -68,6 +68,10 @@ class Database:
             await connection.executescript(SCHEMA)
             await connection.commit()
 
+    async def close(self) -> None:
+        """Close hook for the orchestrator; connections are short-lived per operation."""
+        return None
+
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[aiosqlite.Connection]:
         """Yield a configured connection and always close it afterwards."""

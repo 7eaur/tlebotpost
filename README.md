@@ -4,7 +4,7 @@
 
 ## الحالة الحالية
 
-تم إنجاز **Phase 1 — Skeleton**. النظام القديم محفوظ في فرع:
+تم إنجاز مراحل البناء من **Phase 1 إلى Phase 6**. النظام القديم محفوظ في فرع:
 
 ```text
 legacy/smart-poster
@@ -12,7 +12,7 @@ legacy/smart-poster
 
 والفرع `main` مخصص لإعادة بناء النظام الجديد من الصفر.
 
-تتضمن المرحلة الحالية بنية Python، إعدادات البيئة، SQLite خفيفة، واختبارات أولية. لم يتم ربط حساب Telegram أو بوت التحكم بعد.
+يتضمن النظام الآن Orchestrator متكاملًا، جلسة Telegram، Listener live-only، Transformer، Publisher، دعم الألبومات، Control Bot، إعادة الاتصال، FloodWait، Docker وHealthcheck. لم يتم تنفيذ الاختبار التجريبي على حساب Telegram حقيقي بعد.
 
 ## القرارات المعتمدة
 
@@ -26,6 +26,8 @@ legacy/smart-poster
 - التحكم الكامل من خلال بوت Telegram.
 - استخدام SQLite بسيطة لتخزين الإعدادات والمصادر وآخر مؤشر قراءة فقط، دون تخزين محتوى المنشورات.
 - حفظ جلسة الحساب بشكل آمن خارج Git.
+- تشغيل دائم عبر Docker Compose مع Volume للبيانات والجلسة.
+- عدم تقدم مؤشر الرسالة إلا بعد نجاح معالجة الدفعة ونشرها.
 
 ## الفروع
 
@@ -36,3 +38,4 @@ legacy/smart-poster
 
 - [القرارات والهيكلية](docs/architecture.md)
 - [خطة التنفيذ](docs/implementation-plan.md)
+- [دليل التشغيل على الخادم](docs/operations.md)
