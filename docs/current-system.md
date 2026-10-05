@@ -190,3 +190,13 @@ pytest: 23 passed
 ruff: passed
 compileall: passed
 ```
+
+
+## 11. Railway deployment baseline
+
+- Service source: `7eaur/tlebotpost`, branch `main`.
+- Railway Root Directory: `/backend`.
+- Dockerfile: `/backend/Dockerfile` (resolved as `Dockerfile` from the backend root).
+- Start command: `python -m app.main`.
+- Persistent Volume: mount `/app/data` for SQLite and the Telegram user session.
+- Required Railway variables are the values documented in `.env.example`; secrets must be entered in Railway and never committed to Git.
