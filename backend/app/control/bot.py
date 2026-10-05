@@ -15,6 +15,7 @@ from app.control.errors import friendly_error
 from app.control.resolver import ResolvedChat, TelegramChatResolver
 from app.repositories.settings import SettingsRepository
 from app.repositories.sources import SourceRepository
+from app.telegram.session import TelegramSessionPasswordNeeded
 
 
 class ControlBot:
@@ -318,10 +319,39 @@ class ControlBot:
                 phone_code_hash=self._login_code_hash,
                 password=parts[1] if len(parts) > 1 else None,
             )
+        except TelegramSessionPasswordNeeded:
+            self._pending_action = "login_password"
+            await self._reply(
+                update,
+                "🔐 الحساب محمي بالتحقق بخطوتين.\n"
+                "أرسل الآن كلمة مرور التحقق بخطوتين فقط، أو /cancel للإلغاء.",
+            )
+            return
         except Exception as exc:
             await self._reply(
                 update,
                 "❌ لم يكتمل تسجيل الدخول.\n" + friendly_error(exc, action="إكمال تسجيل الدخول"),
+            )
+            return
+        self._clear_login_state()
+        await self._reply(
+            update,
+            "✅ تم تسجيل جلسة حساب Telegram بنجاح.\n"
+            "يمكنك الآن إضافة المصادر وتحديد القناة الهدف ثم الضغط على «تشغيل».",
+        )
+
+    async def _process_login_password(self, update: Update, password: str) -> None:
+        """Complete the second step without ever persisting the password."""
+        if self.session is None or not self._login_phone or not self._login_code_hash:
+            await self._reply(update, "⚠️ لا توجد عملية تسجيل دخول معلقة. ابدأ بإرسال /login.")
+            return
+        try:
+            await self.session.complete_login_password(password=password)
+        except Exception as exc:
+            await self._reply(
+                update,
+                "❌ لم تكتمل كلمة مرور التحقق بخطوتين.\n"
+                + friendly_error(exc, action="إكمال تسجيل الدخول"),
             )
             return
         self._clear_login_state()
@@ -390,6 +420,9 @@ class ControlBot:
             return
         if self._pending_action == "login_code":
             await self._process_login_code(update, text)
+            return
+        if self._pending_action == "login_password":
+            await self._process_login_password(update, text)
             return
 
         actions = {

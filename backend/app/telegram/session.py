@@ -18,6 +18,10 @@ class TelegramSessionNotAuthorized(TelegramSessionError):
     """Raised when the local session is not logged into a user account."""
 
 
+class TelegramSessionPasswordNeeded(TelegramSessionError):
+    """Raised when Telegram requires the account's two-step password."""
+
+
 class TelegramSession:
     """Own one Telethon user client and keep session handling in one place."""
 
@@ -73,10 +77,19 @@ class TelegramSession:
             )
         except SessionPasswordNeededError as exc:
             if not password:
-                raise TelegramSessionError(
+                raise TelegramSessionPasswordNeeded(
                     "Telegram account requires a two-step verification password"
                 ) from exc
             await self.client.sign_in(password=password)
+        if not await self.client.is_user_authorized():
+            raise TelegramSessionError("Telegram login did not authorize the user session")
+        return self.client
+
+    async def complete_login_password(self, *, password: str) -> TelegramClient:
+        """Finish a login that paused for the account's two-step password."""
+        if not password.strip():
+            raise ValueError("كلمة مرور التحقق بخطوتين لا يمكن أن تكون فارغة")
+        await self.client.sign_in(password=password)
         if not await self.client.is_user_authorized():
             raise TelegramSessionError("Telegram login did not authorize the user session")
         return self.client
