@@ -10,14 +10,14 @@
 - [x] اعتماد تنظيف الحقوق والروابط والرموز التعبيرية.
 - [ ] مراجعة هذه الوثائق واعتمادها.
 
-## Phase 1 — Skeleton
+## Phase 1 — Skeleton — مكتملة
 
-- إنشاء `backend/app` مع نقاط دخول واضحة.
-- إعداد `pyproject.toml` و`.env.example` و`.gitignore`.
-- إعداد logging آمن.
-- إضافة اختبارات إعدادات أولية.
+- [x] إنشاء `backend/app` مع نقاط دخول واضحة.
+- [x] إعداد `pyproject.toml` و`.env.example` و`.gitignore`.
+- [x] إعداد logging آمن.
+- [x] إضافة اختبارات إعدادات وSQLite أولية.
 
-**نقطة التحقق:** تشغيل التطبيق في وضع config-check دون اتصال Telegram.
+**نقطة التحقق:** نجح تشغيل التطبيق في وضع config-check وتهيئة SQLite دون اتصال Telegram، مع نجاح الاختبارات وRuff.
 
 ## Phase 2 — SQLite
 

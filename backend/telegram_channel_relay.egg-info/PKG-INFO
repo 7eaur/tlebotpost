@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: telegram-channel-relay
+Version: 0.1.0
+Summary: Live-only Telegram channel relay with bot control
+Requires-Python: >=3.11
+Requires-Dist: aiosqlite<1,>=0.20
+Requires-Dist: cryptography<44,>=42
+Requires-Dist: python-dotenv<2,>=1
+Requires-Dist: python-telegram-bot<23,>=21
+Requires-Dist: telethon<2,>=1.35
+Provides-Extra: dev
+Requires-Dist: pytest<9,>=8; extra == "dev"
+Requires-Dist: pytest-asyncio<1,>=0.23; extra == "dev"
+Requires-Dist: ruff<1,>=0.6; extra == "dev"

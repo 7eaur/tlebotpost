@@ -1,0 +1,14 @@
+README.md
+pyproject.toml
+app/__init__.py
+app/config.py
+app/database.py
+app/main.py
+app/models.py
+app/py.typed
+telegram_channel_relay.egg-info/PKG-INFO
+telegram_channel_relay.egg-info/SOURCES.txt
+telegram_channel_relay.egg-info/dependency_links.txt
+telegram_channel_relay.egg-info/requires.txt
+telegram_channel_relay.egg-info/top_level.txt
+tests/test_phase1.py
