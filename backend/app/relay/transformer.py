@@ -12,10 +12,16 @@ _URL_RE = re.compile(
     r"(?:https?://|www\.|t\.me/|telegram\.me/)[^\s<>]+",
     re.IGNORECASE,
 )
+_TELEGRAM_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:t\.me|telegram\.me)/[^\s<>]+",
+    re.IGNORECASE,
+)
 _RIGHTS_LINE_RE = re.compile(
     r"^\s*(?:حقوق(?:نا| النشر)?|الحقوق|المصدر|source|credit|credits|via)\s*[:：\-]?",
     re.IGNORECASE,
 )
+_SEPARATOR_RE = re.compile(r"^\s*(?:[-_=ـ─━—–·•♦️]){8,}\s*$")
+_PLAIN_SIGNATURE_RE = re.compile(r"^[A-Za-z0-9_#@.\-]{3,40}$")
 _EMOJI_RE = re.compile(
     "["
     "\U0001F1E6-\U0001F1FF"
@@ -79,16 +85,81 @@ class ContentTransformer:
         return any(keyword.casefold() in lowered for keyword in self.settings.include_keywords)
 
     def _clean_text(self, text: str) -> str:
+        original_lines = text.splitlines()
+        footer_start = self._source_footer_start(original_lines)
         lines: list[str] = []
-        for line in text.splitlines():
+        for index, line in enumerate(original_lines):
+            if footer_start is not None and index >= footer_start:
+                continue
             if _RIGHTS_LINE_RE.match(line):
+                continue
+            if self._is_configured_branding_line(line):
                 continue
             line = _URL_RE.sub("", line)
             line = _EMOJI_RE.sub("", line)
             line = re.sub(r"[ \t]+", " ", line).strip()
             if line:
                 lines.append(line)
+        lines = self._remove_repeated_plain_signatures(lines)
         return "\n".join(lines).strip()
+
+    def _source_footer_start(self, lines: Sequence[str]) -> int | None:
+        """Find a trailing source signature made of a separator and stamp."""
+        separator_indexes = [
+            index for index, line in enumerate(lines) if _SEPARATOR_RE.match(line)
+        ]
+        for index in reversed(separator_indexes):
+            tail = lines[index + 1 :]
+            if any(_TELEGRAM_URL_RE.search(line) for line in tail):
+                return index
+            normalized_tail = [line.strip() for line in tail if line.strip()]
+            if any(
+                _PLAIN_SIGNATURE_RE.fullmatch(line)
+                and normalized_tail.count(line) >= 2
+                for line in normalized_tail
+            ):
+                return index
+        return None
+
+    @staticmethod
+    def _remove_repeated_plain_signatures(lines: list[str]) -> list[str]:
+        """Remove repeated ASCII-only source stamps, usually appended by repost bots."""
+        counts: dict[str, int] = {}
+        for line in lines:
+            normalized = line.strip()
+            if _PLAIN_SIGNATURE_RE.fullmatch(normalized):
+                counts[normalized] = counts.get(normalized, 0) + 1
+        repeated = {
+            value for value, count in counts.items() if count >= 2
+        }
+        if not repeated:
+            return lines
+        last_indexes = {
+            value: max(index for index, line in enumerate(lines) if line.strip() == value)
+            for value in repeated
+        }
+        return [
+            line
+            for index, line in enumerate(lines)
+            if not (
+                line.strip() in repeated
+                and last_indexes[line.strip()] - index <= 7
+            )
+        ]
+
+    def _is_configured_branding_line(self, line: str) -> bool:
+        """Avoid duplicating our own footer when a source already includes it."""
+        normalized = line.strip()
+        return bool(
+            normalized
+            and (
+                (self.settings.brand_link and self.settings.brand_link in normalized)
+                or (
+                    self.settings.brand_footer
+                    and normalized == self.settings.brand_footer.strip()
+                )
+            )
+        )
 
     def _append_branding(self, text: str) -> str:
         branding = [part for part in (self.settings.brand_footer, self.settings.brand_link) if part]

@@ -23,7 +23,11 @@ class ControlBot:
 
     BUTTON_STATUS = "الحالة"
     BUTTON_SOURCES = "المصادر"
+    BUTTON_MANAGE_SOURCES = "إدارة المصادر"
     BUTTON_ADD_SOURCE = "إضافة مصدر"
+    BUTTON_REMOVE_SOURCE = "حذف مصدر"
+    BUTTON_ENABLE_SOURCE = "تفعيل مصدر"
+    BUTTON_DISABLE_SOURCE = "إيقاف مصدر"
     BUTTON_TARGET = "القناة الهدف"
     BUTTON_FILTERS = "الفلاتر"
     BUTTON_LOGIN = "تسجيل جلسة الحساب"
@@ -62,6 +66,7 @@ class ControlBot:
         application.add_handler(CommandHandler("help", self.help))
         application.add_handler(CommandHandler("status", self.status))
         application.add_handler(CommandHandler("sources", self.list_sources))
+        application.add_handler(CommandHandler("manage_sources", self.manage_sources))
         application.add_handler(CommandHandler("addsource", self.add_source))
         application.add_handler(CommandHandler("removesource", self.remove_source))
         application.add_handler(CommandHandler("source_on", self.enable_source))
@@ -151,6 +156,20 @@ class ControlBot:
         ]
         await self._reply(update, "📚 المصادر الحالية:\n\n" + "\n".join(lines))
 
+    async def manage_sources(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show source management actions and the current source list."""
+        if not await self._authorized(update):
+            return
+        await self.list_sources(update, context)
+        await self._reply(
+            update,
+            "🛠 إدارة المصادر:\n"
+            "• حذف مصدر: اضغط «حذف مصدر» ثم أرسل الرابط أو الاسم\n"
+            "• تفعيل مصدر: اضغط «تفعيل مصدر»\n"
+            "• إيقاف مصدر مؤقتًا: اضغط «إيقاف مصدر»\n"
+            "يمكنك أيضًا استخدام /removesource أو /source_on أو /source_off.",
+        )
+
     async def add_source(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
             return
@@ -193,16 +212,38 @@ class ControlBot:
     async def remove_source(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
             return
-        chat = await self._resolve_argument(update, context, "removesource")
-        if chat is None:
+        if not context.args:
+            self._pending_action = "remove_source"
+            await self._reply(update, "أرسل رابط أو اسم المصدر المراد حذفه، أو /cancel للإلغاء.")
+            return
+        await self._process_remove_source(update, " ".join(context.args))
+
+    async def _process_remove_source(self, update: Update, input_ref: str) -> None:
+        try:
+            chat = await self.resolver.resolve(input_ref)
+        except Exception as exc:
+            await self._reply(
+                update,
+                "❌ تعذر الوصول إلى المصدر.\n"
+                + friendly_error(exc, action="حذف المصدر"),
+            )
             return
         removed = await self.sources.delete(chat.chat_id)
+        self._pending_action = None
         await self._reply(update, "✅ تم حذف المصدر." if removed else "⚠️ المصدر غير موجود.")
 
     async def enable_source(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not context.args:
+            self._pending_action = "enable_source"
+            await self._reply(update, "أرسل رابط أو اسم المصدر المراد تفعيله، أو /cancel للإلغاء.")
+            return
         await self._set_source_enabled(update, context, True)
 
     async def disable_source(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not context.args:
+            self._pending_action = "disable_source"
+            await self._reply(update, "أرسل رابط أو اسم المصدر المراد إيقافه، أو /cancel للإلغاء.")
+            return
         await self._set_source_enabled(update, context, False)
 
     async def set_target(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -412,6 +453,16 @@ class ControlBot:
         if self._pending_action == "add_source":
             await self._process_add_source(update, text)
             return
+        if self._pending_action == "remove_source":
+            await self._process_remove_source(update, text)
+            return
+        if self._pending_action in {"enable_source", "disable_source"}:
+            await self._process_source_state(
+                update,
+                text,
+                enabled=self._pending_action == "enable_source",
+            )
+            return
         if self._pending_action == "set_target":
             await self._process_set_target(update, text)
             return
@@ -428,6 +479,7 @@ class ControlBot:
         actions = {
             self.BUTTON_STATUS: self.status,
             self.BUTTON_SOURCES: self.list_sources,
+            self.BUTTON_MANAGE_SOURCES: self.manage_sources,
             self.BUTTON_HELP: self.help,
             self.BUTTON_START: self.start_relay,
             self.BUTTON_STOP: self.stop_relay,
@@ -439,6 +491,12 @@ class ControlBot:
             await self.add_source(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_TARGET:
             await self.set_target(update, SimpleNamespace(args=[]))
+        elif text == self.BUTTON_REMOVE_SOURCE:
+            await self.remove_source(update, SimpleNamespace(args=[]))
+        elif text == self.BUTTON_ENABLE_SOURCE:
+            await self.enable_source(update, SimpleNamespace(args=[]))
+        elif text == self.BUTTON_DISABLE_SOURCE:
+            await self.disable_source(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_LOGIN:
             await self.login(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_FILTERS:
@@ -463,6 +521,23 @@ class ControlBot:
         if chat is None:
             return
         changed = await self.sources.set_enabled(chat.chat_id, enabled)
+        state = "تفعيل" if enabled else "إيقاف"
+        await self._reply(update, f"✅ تم {state} المصدر." if changed else "⚠️ المصدر غير موجود.")
+
+    async def _process_source_state(
+        self, update: Update, input_ref: str, *, enabled: bool
+    ) -> None:
+        try:
+            chat = await self.resolver.resolve(input_ref)
+        except Exception as exc:
+            await self._reply(
+                update,
+                "❌ تعذر الوصول إلى المصدر.\n"
+                + friendly_error(exc, action="تعديل المصدر"),
+            )
+            return
+        changed = await self.sources.set_enabled(chat.chat_id, enabled)
+        self._pending_action = None
         state = "تفعيل" if enabled else "إيقاف"
         await self._reply(update, f"✅ تم {state} المصدر." if changed else "⚠️ المصدر غير موجود.")
 
@@ -551,7 +626,9 @@ class ControlBot:
         return ReplyKeyboardMarkup(
             [
                 [cls.BUTTON_STATUS, cls.BUTTON_SOURCES],
-                [cls.BUTTON_ADD_SOURCE, cls.BUTTON_TARGET],
+                [cls.BUTTON_MANAGE_SOURCES, cls.BUTTON_ADD_SOURCE],
+                [cls.BUTTON_REMOVE_SOURCE, cls.BUTTON_TARGET],
+                [cls.BUTTON_ENABLE_SOURCE, cls.BUTTON_DISABLE_SOURCE],
                 [cls.BUTTON_LOGIN, cls.BUTTON_FILTERS],
                 [cls.BUTTON_START, cls.BUTTON_STOP],
                 [cls.BUTTON_HELP, cls.BUTTON_CANCEL],
@@ -566,12 +643,25 @@ class ControlBot:
         await application.start()
         await application.updater.start_polling()
         await self._notify_started()
+        await self._auto_start_relay()
         try:
             await asyncio.Event().wait()
         finally:
             await application.updater.stop()
             await application.stop()
             await application.shutdown()
+
+    async def _auto_start_relay(self) -> None:
+        """Restore a previously enabled relay after a process/container restart."""
+        config = await self.settings.get()
+        if not config.enabled or self.runtime is None or self.runtime.is_running:
+            return
+        try:
+            await self.runtime.start()
+        except Exception:
+            logging.getLogger(__name__).exception("automatic relay startup failed")
+            await self.settings.set_enabled(False)
+            await self.notify_owner("telegram_disconnected")
 
 
 def _csv_args(args: Sequence[str]) -> tuple[str, ...]:

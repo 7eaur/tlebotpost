@@ -3,9 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 
-import pytest
-
-from app.config import ConfigurationError, Settings
+from app.config import DEFAULT_BRAND_FOOTER, DEFAULT_BRAND_LINK, Settings
 from app.database import Database
 
 
@@ -26,7 +24,7 @@ def test_settings_load_from_environment(monkeypatch, tmp_path):
     assert settings.database_path == tmp_path / "relay.sqlite3"
 
 
-def test_settings_require_branding(monkeypatch):
+def test_settings_use_fixed_branding(monkeypatch):
     for name in ("API_ID", "API_HASH", "BOT_TOKEN", "OWNER_ID", "BRAND_FOOTER", "BRAND_LINK"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("API_ID", "1")
@@ -34,8 +32,9 @@ def test_settings_require_branding(monkeypatch):
     monkeypatch.setenv("BOT_TOKEN", "token")
     monkeypatch.setenv("OWNER_ID", "2")
 
-    with pytest.raises(ConfigurationError, match="BRAND_FOOTER or BRAND_LINK"):
-        Settings.from_env(env_file=None)
+    settings = Settings.from_env(env_file=None)
+    assert settings.brand_footer == DEFAULT_BRAND_FOOTER
+    assert settings.brand_link == DEFAULT_BRAND_LINK
 
 
 def test_database_schema_has_no_message_content(tmp_path):

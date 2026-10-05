@@ -30,6 +30,51 @@ def test_transformer_removes_urls_rights_and_emoji():
     assert "source.example" not in result.text
 
 
+def test_transformer_removes_trailing_source_signature_block():
+    result = ContentTransformer(settings()).transform(
+        "خبر عاجل 🔥\n"
+        "♦️\n"
+        "ــــــــــــــــــــــــــــــــــــــــــــــ\n"
+        "🇾🇪 اخبار اليمن العاجلة 🇾🇪https://t.me/newsyemn"
+    )
+
+    assert result.text == "خبر عاجل\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert "newsyemn" not in result.text
+    assert "اخبار اليمن" not in result.text
+    assert "ــــــــ" not in result.text
+
+
+def test_transformer_removes_telegram_links_without_dropping_regular_text():
+    result = ContentTransformer(settings()).transform(
+        "تابع التفاصيل هنا https://t.me/source_channel وشاركها"
+    )
+
+    assert result.text == "تابع التفاصيل هنا وشاركها\n\nحقوقنا\n\nhttps://t.me/ours"
+
+
+def test_transformer_does_not_duplicate_our_configured_signature():
+    result = ContentTransformer(settings()).transform(
+        "خبر جديد\nحقوقنا\nhttps://t.me/ours"
+    )
+
+    assert result.text == "خبر جديد\n\nحقوقنا\n\nhttps://t.me/ours"
+
+
+def test_transformer_removes_repeated_plain_source_stamp():
+    result = ContentTransformer(settings()).transform(
+        "خبر عاجل\n"
+        "ــــــــــــــــــــــــــــــــــــــــــــــ\n"
+        "اخبار اليمن العاجلة\n"
+        "tlebotpost\n"
+        "tlebotpost\n"
+        "tlebotpost\n"
+        "tlebotpost"
+    )
+
+    assert result.text == "خبر عاجل\n\nحقوقنا\n\nhttps://t.me/ours"
+    assert "tlebotpost" not in result.text
+
+
 def test_transformer_applies_include_exclude_and_media_filters():
     transformer = ContentTransformer(
         settings(

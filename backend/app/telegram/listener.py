@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
@@ -33,6 +34,7 @@ class SourceListener:
         self._running = False
         self._accept_events = False
         self._locks: dict[int, asyncio.Lock] = {}
+        self._logger = logging.getLogger(__name__)
 
     @property
     def is_running(self) -> bool:
@@ -49,6 +51,7 @@ class SourceListener:
             self.client.remove_event_handler(self._handler)
             raise
         self._running = True
+        self._logger.info("source listener started")
 
     async def stop(self) -> None:
         """Stop accepting events, flush pending albums, and unregister the handler."""
@@ -65,6 +68,9 @@ class SourceListener:
         self._accept_events = False
         for source in await self.sources.list(enabled_only=True):
             latest_id = await self._latest_message_id(source.chat_id)
+            self._logger.info(
+                "source baseline set: chat_id=%s message_id=%s", source.chat_id, latest_id
+            )
             await self.sources.upsert(
                 chat_id=source.chat_id,
                 input_ref=source.input_ref,
@@ -100,7 +106,23 @@ class SourceListener:
                 return
             if message_id <= source.baseline_message_id:
                 return
+            self._logger.info(
+                "new source message accepted: chat_id=%s message_id=%s",
+                chat_id,
+                message_id,
+            )
             completion = await self.albums.add(source, message)
 
-        await completion
+        try:
+            await completion
+        except Exception:
+            self._logger.exception(
+                "source message processing failed: chat_id=%s message_id=%s",
+                chat_id,
+                message_id,
+            )
+            raise
         await self.sources.advance_baseline(chat_id, message_id)
+        self._logger.info(
+            "source message processed: chat_id=%s message_id=%s", chat_id, message_id
+        )

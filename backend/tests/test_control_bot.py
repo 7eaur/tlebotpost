@@ -142,6 +142,36 @@ def test_control_bot_builds_handlers_without_network():
     assert application is bot.application
 
 
+def test_control_bot_manages_source_lifecycle_interactively(tmp_path):
+    async def scenario():
+        database = Database(tmp_path / "relay.sqlite3")
+        await database.initialize()
+        sources = SourceRepository(database)
+        bot = ControlBot(
+            token="123:token",
+            owner_id=42,
+            sources=sources,
+            settings=SettingsRepository(database),
+            resolver=FakeResolver(),
+            runtime=FakeRuntime(),
+        )
+
+        await bot.add_source(update(42), SimpleNamespace(args=["@source"]))
+        await bot.disable_source(update(42), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "@source"), SimpleNamespace(args=[]))
+        assert (await sources.list())[0].enabled is False
+
+        await bot.enable_source(update(42), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "@source"), SimpleNamespace(args=[]))
+        assert (await sources.list())[0].enabled is True
+
+        await bot.remove_source(update(42), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "@source"), SimpleNamespace(args=[]))
+        assert await sources.list() == []
+
+    asyncio.run(scenario())
+
+
 def test_control_bot_login_flow_keeps_pending_state_in_memory(tmp_path):
     async def scenario():
         database = Database(tmp_path / "relay.sqlite3")

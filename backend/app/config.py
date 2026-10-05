@@ -13,6 +13,13 @@ class ConfigurationError(ValueError):
     """Raised when required application settings are missing or invalid."""
 
 
+DEFAULT_BRAND_FOOTER = (
+    "ــــــــــــــــــــــــــــــــــــــــــــــ\n"
+    "#أخبار_اليمن_الان تابع أحدث الاخبار"
+)
+DEFAULT_BRAND_LINK = "https://t.me/yemen_no"
+
+
 
 def _csv(value: str) -> tuple[str, ...]:
     """Parse a comma-separated setting while dropping empty values."""
@@ -77,8 +84,8 @@ class Settings:
             "owner_id": _required_int("OWNER_ID"),
             "session_path": Path(os.getenv("SESSION_PATH", "data/telegram_user.session")),
             "database_path": Path(os.getenv("DATABASE_PATH", "data/relay.sqlite3")),
-            "brand_footer": os.getenv("BRAND_FOOTER", "").strip(),
-            "brand_link": os.getenv("BRAND_LINK", "").strip(),
+            "brand_footer": DEFAULT_BRAND_FOOTER,
+            "brand_link": DEFAULT_BRAND_LINK,
             "include_keywords": _csv(os.getenv("INCLUDE_KEYWORDS", "")),
             "exclude_keywords": _csv(os.getenv("EXCLUDE_KEYWORDS", "")),
             "log_level": os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
@@ -100,8 +107,6 @@ class Settings:
             raise ConfigurationError("API_ID must be a positive integer")
         if self.owner_id <= 0:
             raise ConfigurationError("OWNER_ID must be a positive integer")
-        if not self.brand_footer and not self.brand_link:
-            raise ConfigurationError("BRAND_FOOTER or BRAND_LINK must be configured")
         if self.log_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ConfigurationError("LOG_LEVEL must be a standard logging level")
         if self.album_window_seconds <= 0:
