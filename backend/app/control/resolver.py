@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from telethon import functions
 from telethon.utils import get_peer_id
 
 from app.telegram.session import TelegramSessionNotAuthorized
@@ -33,11 +34,6 @@ class TelegramChatResolver:
         normalized = normalize_chat_reference(input_ref)
         if not normalized:
             raise ValueError("مرجع القناة لا يمكن أن يكون فارغًا")
-        if normalized.startswith("invite:"):
-            raise ValueError(
-                "رابط الدعوة الخاص يحتاج أن يكون الحساب عضوًا في القناة أولًا؛ "
-                "أرسل الرابط بعد الانضمام أو استخدم @username للقناة العامة"
-            )
         is_connected = getattr(self.client, "is_connected", None)
         if callable(is_connected) and not is_connected():
             await self.client.connect()
@@ -46,7 +42,17 @@ class TelegramChatResolver:
             raise TelegramSessionNotAuthorized(
                 "سجّل جلسة حساب Telegram أولًا من زر تسجيل جلسة الحساب"
             )
-        entity = await self.client.get_entity(normalized)
+        if normalized.startswith("invite:"):
+            invite_hash = normalized.removeprefix("invite:")
+            invite = await self.client(functions.messages.CheckChatInviteRequest(hash=invite_hash))
+            entity = getattr(invite, "chat", None)
+            if entity is None:
+                raise ValueError(
+                    "رابط الدعوة صحيح، لكن الحساب ليس عضوًا في القناة؛ "
+                    "أضف الحساب إلى القناة أولًا ثم أعد المحاولة"
+                )
+        else:
+            entity = await self.client.get_entity(normalized)
         title = getattr(entity, "title", None) or getattr(entity, "first_name", None)
         if not title:
             raise ValueError("المرجع لا يشير إلى مجموعة أو قناة مدعومة")
