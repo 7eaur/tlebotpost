@@ -22,19 +22,27 @@ class ControlBot:
     """Manage relay configuration through a private owner-only bot."""
 
     BUTTON_STATUS = "الحالة"
-    BUTTON_SOURCES = "المصادر"
+    BUTTON_SOURCES = "📚 المصادر"
+    BUTTON_LIST_SOURCES = "عرض المصادر"
     BUTTON_MANAGE_SOURCES = "إدارة المصادر"
     BUTTON_ADD_SOURCE = "إضافة مصدر"
     BUTTON_REMOVE_SOURCE = "حذف مصدر"
     BUTTON_ENABLE_SOURCE = "تفعيل مصدر"
     BUTTON_DISABLE_SOURCE = "إيقاف مصدر"
-    BUTTON_TARGET = "القناة الهدف"
-    BUTTON_FILTERS = "الفلاتر"
-    BUTTON_LOGIN = "تسجيل جلسة الحساب"
+    BUTTON_TARGET = "🎯 الوجهة"
+    BUTTON_TARGET_ACTION = "تحديد القناة الهدف"
+    BUTTON_FILTERS = "🧹 الفلاتر"
+    BUTTON_LOGIN = "🔐 الحساب"
+    BUTTON_LOGIN_ACTION = "تسجيل جلسة الحساب"
+    BUTTON_RUNTIME = "⚙️ التشغيل"
+    BUTTON_INCLUDE = "كلمات التضمين"
+    BUTTON_EXCLUDE = "كلمات الاستبعاد"
+    BUTTON_MEDIA_TYPES = "أنواع الوسائط"
     BUTTON_START = "تشغيل"
     BUTTON_STOP = "إيقاف"
     BUTTON_HELP = "المساعدة"
     BUTTON_CANCEL = "إلغاء"
+    BUTTON_BACK = "↩️ رجوع"
 
     COMMANDS = (
         ("start", "فتح القائمة الرئيسية"),
@@ -49,8 +57,12 @@ class ControlBot:
         ("source_on", "تفعيل مصدر"),
         ("source_off", "إيقاف مصدر"),
         ("settarget", "تحديد القناة الهدف"),
+        ("target", "عرض القناة الهدف"),
+        ("cleartarget", "مسح القناة الهدف"),
         ("login", "بدء تسجيل جلسة الحساب"),
         ("login_code", "إرسال رمز تسجيل الدخول"),
+        ("session", "حالة جلسة الحساب"),
+        ("disconnect", "فصل جلسة الحساب"),
         ("include", "ضبط كلمات التضمين"),
         ("exclude", "ضبط كلمات الاستبعاد"),
         ("mediatypes", "ضبط أنواع الوسائط"),
@@ -78,6 +90,7 @@ class ControlBot:
         self._login_phone: str | None = None
         self._login_code_hash: str | None = None
         self._pending_action: str | None = None
+        self._menu_section = "main"
         self.application: Application | None = None
 
     def build_application(self) -> Application:
@@ -93,11 +106,15 @@ class ControlBot:
         application.add_handler(CommandHandler("source_on", self.enable_source))
         application.add_handler(CommandHandler("source_off", self.disable_source))
         application.add_handler(CommandHandler("settarget", self.set_target))
+        application.add_handler(CommandHandler("target", self.target_status))
+        application.add_handler(CommandHandler("cleartarget", self.clear_target))
         application.add_handler(CommandHandler("include", self.set_include))
         application.add_handler(CommandHandler("exclude", self.set_exclude))
         application.add_handler(CommandHandler("mediatypes", self.set_media_types))
         application.add_handler(CommandHandler("login", self.login))
         application.add_handler(CommandHandler("login_code", self.login_code))
+        application.add_handler(CommandHandler("session", self.session_status))
+        application.add_handler(CommandHandler("disconnect", self.disconnect_session))
         application.add_handler(CommandHandler("cancel", self.cancel))
         application.add_handler(CommandHandler("run", self.start_relay))
         application.add_handler(CommandHandler("pause", self.stop_relay))
@@ -108,6 +125,7 @@ class ControlBot:
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
             return
+        self._menu_section = "main"
         await self._reply(
             update,
             "مرحبًا بك في نظام إعادة النشر اللحظي.\n\n"
@@ -146,11 +164,15 @@ class ControlBot:
             "│  ├─ /source_on @channel — تفعيل مصدر\n"
             "│  └─ /source_off @channel — إيقاف مصدر مؤقتًا\n\n"
             "├─ 🎯 الوجهة\n"
-            "│  └─ /settarget @channel — تحديد قناة النشر\n\n"
+            "│  ├─ /target — عرض القناة الحالية\n"
+            "│  ├─ /settarget @channel — تحديد قناة النشر\n"
+            "│  └─ /cleartarget — مسح القناة بعد إيقاف النظام\n\n"
             "├─ 🔐 جلسة الحساب\n"
             "│  ├─ /login +967XXXXXXXXX — طلب رمز الدخول\n"
-            "│  └─ /login_code 12345 — إكمال الدخول\n"
-            "│     └─ إذا ظهر التحقق بخطوتين أرسل كلمة المرور عند طلبها\n\n"
+            "│  ├─ /login_code 12345 — إكمال الدخول\n"
+            "│  ├─ /session — حالة الاتصال والتفويض\n"
+            "│  ├─ /disconnect — فصل الجلسة دون حذف الملف\n"
+            "│  └─ إذا ظهر التحقق بخطوتين أرسل كلمة المرور عند طلبها\n\n"
             "├─ 🧹 الفلاتر\n"
             "│  ├─ /include خبر,تقنية — نشر ما يطابق الكلمات\n"
             "│  ├─ /exclude إعلان — استبعاد ما يطابق الكلمات\n"
@@ -182,6 +204,48 @@ class ControlBot:
             f"• الإعداد العام: {'مفعّل' if config.enabled else 'متوقف'}",
         )
 
+    async def session_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show connection and authorization state of the user session."""
+        if not await self._authorized(update):
+            return
+        if self.session is None:
+            await self._reply(update, "🔐 جلسة الحساب غير مهيأة.")
+            return
+        connected = self.session.client.is_connected()
+        authorized = connected and await self.session.client.is_user_authorized()
+        await self._reply(
+            update,
+            "🔐 حالة جلسة الحساب\n"
+            f"• الاتصال: {'متصل' if connected else 'غير متصل'}\n"
+            f"• التفويض: {'مصرح' if authorized else 'غير مصرح'}\n"
+            "استخدم «تسجيل جلسة الحساب» إذا لم تكن الجلسة مصرحًا بها.",
+        )
+
+    async def disconnect_session(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Pause the relay and disconnect without deleting the session file."""
+        if not await self._authorized(update):
+            return
+        if self.session is None:
+            await self._reply(update, "🔐 جلسة الحساب غير مهيأة.")
+            return
+        try:
+            if self.runtime.is_running:
+                await self.runtime.stop()
+            await self.settings.set_enabled(False)
+            await self.session.disconnect()
+        except Exception as exc:
+            await self._reply(
+                update,
+                "❌ تعذر فصل جلسة الحساب بأمان.\n"
+                + friendly_error(exc, action="فصل جلسة الحساب"),
+            )
+            return
+        await self._reply(
+            update,
+            "✅ تم فصل جلسة الحساب وإيقاف النشر.\n"
+            "ملف الجلسة محفوظ، ويمكن إعادة الاتصال بواسطة /run بعد تسجيل الدخول.",
+        )
+
     async def list_sources(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
             return
@@ -199,6 +263,7 @@ class ControlBot:
         """Show source management actions and the current source list."""
         if not await self._authorized(update):
             return
+        self._menu_section = "sources"
         await self.list_sources(update, context)
         await self._reply(
             update,
@@ -319,6 +384,32 @@ class ControlBot:
             "تأكد من إضافة البوت مشرفًا قبل الضغط على «تشغيل».",
         )
 
+    async def target_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Show the currently configured target channel."""
+        if not await self._authorized(update):
+            return
+        config = await self.settings.get()
+        if config.target_chat_id is None:
+            await self._reply(update, "🎯 لا توجد قناة هدف محددة حاليًا.")
+            return
+        await self._reply(
+            update,
+            "🎯 القناة الهدف الحالية\n"
+            f"• المرجع: {config.target_ref}\n"
+            f"• المعرف: {config.target_chat_id}\n"
+            "تأكد أن البوت مشرف ويملك صلاحية نشر الرسائل.",
+        )
+
+    async def clear_target(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Clear the target safely; a running relay must be paused first."""
+        if not await self._authorized(update):
+            return
+        if self.runtime.is_running:
+            await self._reply(update, "⏸️ أوقف النظام أولًا بواسطة /pause ثم امسح القناة الهدف.")
+            return
+        await self.settings.update_target(None, None)
+        await self._reply(update, "✅ تم مسح القناة الهدف. لن يعمل النشر حتى تحدد هدفًا جديدًا.")
+
     async def set_include(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await self._set_keywords(update, context, include=True)
 
@@ -339,6 +430,45 @@ class ControlBot:
             allowed_media_types=() if media_types == ("all",) else media_types,
         )
         await self._reply(update, "✅ تم تحديث فلتر أنواع الوسائط.")
+
+    async def _start_filter_input(
+        self, update: Update, action: str, prompt: str
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        self._pending_action = action
+        await self._reply(update, prompt + "\nأرسل /cancel للإلغاء.")
+
+    async def _process_filter_input(self, update: Update, value: str, action: str) -> None:
+        values = _csv_args(value.split())
+        if not values:
+            await self._reply(update, "⚠️ أرسل قيمة واحدة على الأقل مفصولة بفواصل.")
+            return
+        config = await self.settings.get()
+        if action == "include_filter":
+            await self.settings.update_filters(
+                include_keywords=values,
+                exclude_keywords=config.exclude_keywords,
+                allowed_media_types=config.allowed_media_types,
+            )
+            message = "✅ تم تحديث كلمات التضمين."
+        elif action == "exclude_filter":
+            await self.settings.update_filters(
+                include_keywords=config.include_keywords,
+                exclude_keywords=values,
+                allowed_media_types=config.allowed_media_types,
+            )
+            message = "✅ تم تحديث كلمات الاستبعاد."
+        else:
+            allowed = () if values == ("all",) else values
+            await self.settings.update_filters(
+                include_keywords=config.include_keywords,
+                exclude_keywords=config.exclude_keywords,
+                allowed_media_types=allowed,
+            )
+            message = "✅ تم تحديث فلتر أنواع الوسائط."
+        self._pending_action = None
+        await self._reply(update, message)
 
     async def login(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Start a guided user-account login flow."""
@@ -514,42 +644,74 @@ class ControlBot:
         if self._pending_action == "login_password":
             await self._process_login_password(update, text)
             return
+        if self._pending_action in {"include_filter", "exclude_filter", "media_filter"}:
+            await self._process_filter_input(update, text, self._pending_action)
+            return
 
-        actions = {
-            self.BUTTON_STATUS: self.status,
-            self.BUTTON_SOURCES: self.list_sources,
-            self.BUTTON_MANAGE_SOURCES: self.manage_sources,
-            self.BUTTON_HELP: self.help,
-            self.BUTTON_START: self.start_relay,
-            self.BUTTON_STOP: self.stop_relay,
-        }
-        action = actions.get(text)
-        if action:
-            await action(update, context)
-        elif text == "🏠 القائمة الرئيسية":
+        if text == self.BUTTON_BACK or text == "🏠 القائمة الرئيسية":
             await self.start(update, context)
-        elif text == "🎯 إعدادات الوجهة":
-            await self.set_target(update, SimpleNamespace(args=[]))
-        elif text == "🔐 الحساب":
-            await self.login(update, SimpleNamespace(args=[]))
+        elif text == self.BUTTON_SOURCES:
+            self._menu_section = "sources"
+            await self._reply(update, "📚 قسم المصادر\nاختر العملية المطلوبة:")
+        elif text == self.BUTTON_TARGET:
+            self._menu_section = "target"
+            await self._reply(update, "🎯 قسم الوجهة\nاختر العملية المطلوبة:")
+        elif text == self.BUTTON_FILTERS:
+            self._menu_section = "filters"
+            await self._reply(
+                update,
+                "🧹 قسم الفلاتر\n"
+                "استخدم الأوامر التالية:\n/include خبر,تقنية\n"
+                "/exclude إعلان\n/mediatypes photo,video أو all",
+            )
+        elif text == self.BUTTON_LOGIN:
+            self._menu_section = "account"
+            await self._reply(update, "🔐 قسم الحساب\nاختر تسجيل جلسة Telegram:")
+        elif text == self.BUTTON_RUNTIME:
+            self._menu_section = "runtime"
+            await self._reply(update, "⚙️ قسم التشغيل\nاختر العملية المطلوبة:")
+        elif text == self.BUTTON_STATUS:
+            await self.status(update, context)
+        elif text == self.BUTTON_HELP:
+            await self.help(update, context)
+        elif text == self.BUTTON_LIST_SOURCES:
+            await self.list_sources(update, context)
         elif text == self.BUTTON_ADD_SOURCE:
             await self.add_source(update, SimpleNamespace(args=[]))
-        elif text == self.BUTTON_TARGET:
+        elif text == self.BUTTON_TARGET_ACTION:
             await self.set_target(update, SimpleNamespace(args=[]))
+        elif text == "عرض القناة الهدف":
+            await self.target_status(update, context)
+        elif text == "مسح القناة الهدف":
+            await self.clear_target(update, context)
         elif text == self.BUTTON_REMOVE_SOURCE:
             await self.remove_source(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_ENABLE_SOURCE:
             await self.enable_source(update, SimpleNamespace(args=[]))
         elif text == self.BUTTON_DISABLE_SOURCE:
             await self.disable_source(update, SimpleNamespace(args=[]))
-        elif text == self.BUTTON_LOGIN:
+        elif text == self.BUTTON_LOGIN_ACTION:
             await self.login(update, SimpleNamespace(args=[]))
-        elif text == self.BUTTON_FILTERS:
-            await self._reply(
-                update,
-                "⚙️ الفلاتر:\n/include خبر,تقنية\n/exclude إعلان\n"
-                "/mediatypes photo,video أو /mediatypes all",
+        elif text == "حالة الجلسة":
+            await self.session_status(update, context)
+        elif text == "فصل الجلسة":
+            await self.disconnect_session(update, context)
+        elif text == self.BUTTON_INCLUDE:
+            await self._start_filter_input(
+                update, "include_filter", "أرسل كلمات التضمين مفصولة بفواصل، مثل: خبر,تقنية"
             )
+        elif text == self.BUTTON_EXCLUDE:
+            await self._start_filter_input(
+                update, "exclude_filter", "أرسل كلمات الاستبعاد مفصولة بفواصل، مثل: إعلان"
+            )
+        elif text == self.BUTTON_MEDIA_TYPES:
+            await self._start_filter_input(
+                update, "media_filter", "أرسل الأنواع مفصولة بفواصل، مثل: photo,video أو all"
+            )
+        elif text == self.BUTTON_START:
+            await self.start_relay(update, context)
+        elif text == self.BUTTON_STOP:
+            await self.stop_relay(update, context)
         elif text == self.BUTTON_CANCEL:
             await self.cancel(update, context)
         else:
@@ -666,22 +828,44 @@ class ControlBot:
                 exc_info=True,
             )
 
-    @classmethod
-    def keyboard(cls) -> ReplyKeyboardMarkup:
-        return ReplyKeyboardMarkup(
-            [
-                ["🏠 القائمة الرئيسية", cls.BUTTON_HELP],
-                [cls.BUTTON_STATUS, cls.BUTTON_SOURCES],
-                [cls.BUTTON_MANAGE_SOURCES, cls.BUTTON_ADD_SOURCE],
-                [cls.BUTTON_REMOVE_SOURCE, cls.BUTTON_TARGET],
-                [cls.BUTTON_ENABLE_SOURCE, cls.BUTTON_DISABLE_SOURCE],
-                ["🎯 إعدادات الوجهة", cls.BUTTON_FILTERS],
-                [cls.BUTTON_LOGIN, "🔐 الحساب"],
-                [cls.BUTTON_START, cls.BUTTON_STOP],
-                [cls.BUTTON_CANCEL],
+    def keyboard(self) -> ReplyKeyboardMarkup:
+        """Return only the active section's keyboard, not every action at once."""
+        main = [
+            [self.BUTTON_SOURCES, self.BUTTON_TARGET],
+            [self.BUTTON_LOGIN, self.BUTTON_FILTERS],
+            [self.BUTTON_RUNTIME, self.BUTTON_STATUS],
+            [self.BUTTON_HELP, self.BUTTON_CANCEL],
+        ]
+        sections = {
+            "main": main,
+            "sources": [
+                [self.BUTTON_LIST_SOURCES, self.BUTTON_ADD_SOURCE],
+                [self.BUTTON_MANAGE_SOURCES, self.BUTTON_REMOVE_SOURCE],
+                [self.BUTTON_ENABLE_SOURCE, self.BUTTON_DISABLE_SOURCE],
+                [self.BUTTON_BACK],
             ],
-            resize_keyboard=True,
-        )
+            "target": [
+                ["عرض القناة الهدف", self.BUTTON_TARGET_ACTION],
+                ["مسح القناة الهدف"],
+                [self.BUTTON_BACK],
+            ],
+            "account": [
+                ["حالة الجلسة", self.BUTTON_LOGIN_ACTION],
+                ["فصل الجلسة"],
+                [self.BUTTON_BACK],
+            ],
+            "filters": [
+                [self.BUTTON_INCLUDE, self.BUTTON_EXCLUDE],
+                [self.BUTTON_MEDIA_TYPES],
+                [self.BUTTON_BACK],
+            ],
+            "runtime": [
+                [self.BUTTON_STATUS],
+                [self.BUTTON_START, self.BUTTON_STOP],
+                [self.BUTTON_BACK],
+            ],
+        }
+        return ReplyKeyboardMarkup(sections.get(self._menu_section, main), resize_keyboard=True)
 
     async def run_polling(self) -> None:
         """Build and run polling; intended for the production entry point."""

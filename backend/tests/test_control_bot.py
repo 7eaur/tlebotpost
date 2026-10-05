@@ -142,6 +142,41 @@ def test_control_bot_builds_handlers_without_network():
     assert application is bot.application
 
 
+def test_control_bot_uses_nested_section_menus(tmp_path):
+    async def scenario():
+        database = Database(tmp_path / "relay.sqlite3")
+        await database.initialize()
+        bot = ControlBot(
+            token="123:token",
+            owner_id=42,
+            sources=SourceRepository(database),
+            settings=SettingsRepository(database),
+            resolver=FakeResolver(),
+            runtime=FakeRuntime(),
+        )
+
+        assert bot._menu_section == "main"
+        await bot.menu_message(update(42, bot.BUTTON_SOURCES), SimpleNamespace(args=[]))
+        assert bot._menu_section == "sources"
+        source_keyboard = [
+            [button["text"] for button in row]
+            for row in bot.keyboard().to_dict()["keyboard"]
+        ]
+        assert source_keyboard == [
+            [bot.BUTTON_LIST_SOURCES, bot.BUTTON_ADD_SOURCE],
+            [bot.BUTTON_MANAGE_SOURCES, bot.BUTTON_REMOVE_SOURCE],
+            [bot.BUTTON_ENABLE_SOURCE, bot.BUTTON_DISABLE_SOURCE],
+            [bot.BUTTON_BACK],
+        ]
+
+        await bot.menu_message(update(42, bot.BUTTON_BACK), SimpleNamespace(args=[]))
+        assert bot._menu_section == "main"
+        main_keyboard = bot.keyboard().to_dict()["keyboard"]
+        assert len(main_keyboard) == 4
+
+    asyncio.run(scenario())
+
+
 def test_control_bot_manages_source_lifecycle_interactively(tmp_path):
     async def scenario():
         database = Database(tmp_path / "relay.sqlite3")
@@ -168,6 +203,40 @@ def test_control_bot_manages_source_lifecycle_interactively(tmp_path):
         await bot.remove_source(update(42), SimpleNamespace(args=[]))
         await bot.menu_message(update(42, "@source"), SimpleNamespace(args=[]))
         assert await sources.list() == []
+
+    asyncio.run(scenario())
+
+
+def test_control_bot_manages_target_and_filters_from_submenus(tmp_path):
+    async def scenario():
+        database = Database(tmp_path / "relay.sqlite3")
+        await database.initialize()
+        settings = SettingsRepository(database)
+        bot = ControlBot(
+            token="123:token",
+            owner_id=42,
+            sources=SourceRepository(database),
+            settings=settings,
+            resolver=FakeResolver(),
+            runtime=FakeRuntime(),
+        )
+
+        await bot.menu_message(update(42, bot.BUTTON_TARGET), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, bot.BUTTON_TARGET_ACTION), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "@target"), SimpleNamespace(args=[]))
+        assert (await settings.get()).target_chat_id == -1001
+
+        await bot.menu_message(update(42, "مسح القناة الهدف"), SimpleNamespace(args=[]))
+        assert (await settings.get()).target_chat_id is None
+
+        await bot.menu_message(update(42, bot.BUTTON_FILTERS), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, bot.BUTTON_INCLUDE), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "خبر,تقنية"), SimpleNamespace(args=[]))
+        assert (await settings.get()).include_keywords == ("خبر", "تقنية")
+
+        await bot.menu_message(update(42, bot.BUTTON_EXCLUDE), SimpleNamespace(args=[]))
+        await bot.menu_message(update(42, "إعلان"), SimpleNamespace(args=[]))
+        assert (await settings.get()).exclude_keywords == ("إعلان",)
 
     asyncio.run(scenario())
 
