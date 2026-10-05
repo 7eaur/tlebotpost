@@ -15,8 +15,6 @@ RUN useradd --create-home --uid 10001 relay \
     && chown -R relay:relay /app
 USER relay
 
-VOLUME ["/app/data"]
-
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD python -m app.health
 
