@@ -31,6 +31,10 @@ Branding variables:
 1. Removed the unsupported Docker volume declaration from the application Dockerfile.
 2. Added an owner startup notification: `✅ البوت يعمل الآن وجاهز لاستقبال الأوامر.`
 3. Made branding optional at runtime; branding can still be configured through environment variables.
+4. Added a guided Arabic control-bot flow for login, source creation, target configuration, and cancellation.
+5. Added normalization for `https://t.me/...`, `t.me/...`, `https://t.me/c/...`, international phone numbers, Arabic digits, and login codes.
+6. Added user-facing error messages instead of exposing only Python exception names.
+7. Source/target resolution now connects the user session automatically after login, without requiring `/run` first.
 
 ## Deployment history
 
@@ -69,6 +73,26 @@ Do not mark production fully verified until the current deployment reaches a sta
 4. `/app/data` is writable and persistent across restart.
 5. No restart/crash loop occurs.
 6. Basic owner commands such as `/start` and `/status` respond.
+
+### Recommended first-run sequence
+
+1. Open the control bot and press `تسجيل جلسة الحساب`.
+2. Send the phone number in international format, for example `+967700000000`.
+3. Send the Telegram login code. If two-step verification is enabled, send the code followed by the password.
+4. Press `إضافة مصدر`, then send `@channel` or a full `https://t.me/channel` link.
+5. Press `القناة الهدف`, then send the target channel reference.
+6. Add the control bot as an administrator in the target channel with `Post Messages` permission.
+7. Press `تشغيل`.
+
+The bot starts from the latest message when a source is added. It does not publish historical messages.
+
+### Troubleshooting
+
+- **Phone rejected:** use the full international form with `+` or `00`, without a local leading zero.
+- **Source cannot be resolved:** confirm that the user account is already a member of the private source and that the public link is valid.
+- **Target cannot be resolved:** confirm that the user account can open the channel, then confirm the bot is an administrator with `Post Messages`.
+- **No login flow is pending:** press `تسجيل جلسة الحساب` again; `/cancel` clears an incomplete flow.
+- **System refuses to start:** check that at least one source and one target are configured.
 
 ## Security
 

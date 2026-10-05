@@ -49,11 +49,10 @@ class TelegramSession:
 
     async def request_login_code(self, phone: str) -> Any:
         """Send a login code; the caller must keep the returned hash private."""
-        if not phone.strip():
-            raise ValueError("phone must not be empty")
+        normalized_phone = normalize_phone(phone)
         if not self.client.is_connected():
             await self.client.connect()
-        return await self.client.send_code_request(phone.strip())
+        return await self.client.send_code_request(normalized_phone)
 
     async def complete_login(
         self,
@@ -64,10 +63,12 @@ class TelegramSession:
         password: str | None = None,
     ) -> TelegramClient:
         """Complete code login and optionally handle two-step verification."""
+        normalized_phone = normalize_phone(phone)
+        normalized_code = normalize_code(code)
         try:
             await self.client.sign_in(
-                phone=phone.strip(),
-                code=code.strip(),
+                phone=normalized_phone,
+                code=normalized_code,
                 phone_code_hash=phone_code_hash,
             )
         except SessionPasswordNeededError as exc:
@@ -84,3 +85,23 @@ class TelegramSession:
         """Disconnect cleanly without deleting the local session file."""
         if self.client.is_connected():
             await self.client.disconnect()
+
+
+def normalize_phone(phone: str) -> str:
+    """Normalize Arabic/Latin digits and common international phone formats."""
+    translation = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    value = phone.strip().translate(translation).replace(" ", "").replace("-", "")
+    if value.startswith("00"):
+        value = f"+{value[2:]}"
+    if not value.startswith("+") or not value[1:].isdigit() or not 8 <= len(value[1:]) <= 15:
+        raise ValueError("رقم الهاتف غير صالح. استخدم الصيغة الدولية مثل +967700000000")
+    return value
+
+
+def normalize_code(code: str) -> str:
+    """Normalize Telegram login code digits entered in Arabic or Latin form."""
+    translation = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+    value = code.strip().translate(translation).replace(" ", "")
+    if not value.isdigit():
+        raise ValueError("رمز الدخول يجب أن يتكون من أرقام فقط")
+    return value
