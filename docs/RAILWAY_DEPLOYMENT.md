@@ -43,20 +43,30 @@ Branding variables:
 
 ## Verification status
 
-The Docker image build completed successfully and Python dependencies installed successfully. The previous runtime crash was caused by missing branding configuration:
+The latest previously completed Railway deployment was:
+- Deployment: `3f424373-25b0-4f84-9af0-6d2833167b25`
+- Commit: `daf47f53d4e03e2fa5b37b8886aaf529f723e228`
+- Status: `SUCCESS`
 
-`ConfigurationError: BRAND_FOOTER or BRAND_LINK must be configured`
+A further runtime/storage fix was then committed on `main`:
+- Commit: `36379d35728180f279964ca8b3763014868a04d3`
+- Change: simplify the container runtime user setup so the Railway-mounted `/app/data` volume can be written by the application.
+- A new Railway deployment was triggered: `4407b028-9e04-4b5a-a135-dd3482a288d3`
+- At the time of this record update, that deployment was still `INITIALIZING`.
 
-That blocking validation has now been removed and Railway branding variables have also been configured.
+Important source-of-truth note:
+- `backend/app/config.py` on `main` still contains the `BRAND_FOOTER or BRAND_LINK` validation. Railway therefore must continue to receive a non-empty `BRAND_FOOTER` (or `BRAND_LINK`). The Railway service has `BRAND_FOOTER` configured.
+- `backend/app/control/bot.py` contains the owner startup-ready notification.
+- `backend/Dockerfile` now creates `/app/data` without switching to the previous non-root runtime user.
 
-### Still pending
+### Final verification checklist
 
-Do not mark production fully verified until a deployment reaches a stable running state and logs confirm:
+Do not mark production fully verified until the current deployment reaches a stable running state and runtime logs confirm:
 
-1. `python -m app.main` starts without configuration errors.
+1. `python -m app.main` starts without configuration or database errors.
 2. Telegram polling starts successfully.
-3. The owner receives the startup-ready notification.
-4. `/app/data` is writable and persistent.
+3. The owner startup-ready notification is attempted successfully.
+4. `/app/data` is writable and persistent across restart.
 5. No restart/crash loop occurs.
 6. Basic owner commands such as `/start` and `/status` respond.
 
