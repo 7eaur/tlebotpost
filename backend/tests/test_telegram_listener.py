@@ -46,8 +46,8 @@ def test_listener_skips_history_and_rebaselines_after_restart(tmp_path):
         client = FakeTelegramClient({-1001: 10})
         received: list[int] = []
 
-        async def on_message(_source, message):
-            received.append(message.id)
+        async def on_message(_source, messages):
+            received.extend(message.id for message in messages)
 
         listener = SourceListener(client, sources, on_message)
         await listener.start()
@@ -85,8 +85,8 @@ def test_listener_ignores_disabled_sources(tmp_path):
         client = FakeTelegramClient({-1001: 1})
         received = []
 
-        async def on_message(_source, message):
-            received.append(message.id)
+        async def on_message(_source, messages):
+            received.extend(message.id for message in messages)
 
         listener = SourceListener(client, sources, on_message)
         await listener.start()

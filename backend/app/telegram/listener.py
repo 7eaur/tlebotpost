@@ -9,18 +9,26 @@ from typing import Any
 from telethon import events
 
 from app.models import Source
+from app.relay.albums import AlbumCollector
 from app.repositories.sources import SourceRepository
 
-MessageCallback = Callable[[Source, Any], Awaitable[None]]
+MessageBatchCallback = Callable[[Source, Sequence[Any]], Awaitable[None]]
 
 
 class SourceListener:
     """Listen for new messages and deliberately skip historical messages."""
 
-    def __init__(self, client: Any, sources: SourceRepository, on_message: MessageCallback) -> None:
+    def __init__(
+        self,
+        client: Any,
+        sources: SourceRepository,
+        on_message: MessageBatchCallback,
+        album_window_seconds: float = 0.8,
+    ) -> None:
         self.client = client
         self.sources = sources
         self.on_message = on_message
+        self.albums = AlbumCollector(on_message, album_window_seconds)
         self._handler = self._handle_event
         self._running = False
         self._accept_events = False
@@ -43,8 +51,9 @@ class SourceListener:
         self._running = True
 
     async def stop(self) -> None:
-        """Stop accepting events and unregister the handler."""
+        """Stop accepting events, flush pending albums, and unregister the handler."""
         self._accept_events = False
+        await self.albums.close()
         if self._running:
             self.client.remove_event_handler(self._handler)
         self._running = False
@@ -76,7 +85,7 @@ class SourceListener:
         return getattr(messages, "id", 0) or 0
 
     async def _handle_event(self, event: Any) -> None:
-        """Process one event only when it is newer than the stored baseline."""
+        """Queue one event only when it is newer than the stored baseline."""
         if not self._accept_events:
             return
         message = getattr(event, "message", event)
@@ -92,5 +101,5 @@ class SourceListener:
                 return
             if message_id <= source.baseline_message_id:
                 return
-            await self.on_message(source, message)
+            await self.albums.add(source, message)
             await self.sources.advance_baseline(chat_id, message_id)
