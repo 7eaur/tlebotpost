@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Sequence
 from typing import Any
 
@@ -354,6 +355,22 @@ class ControlBot:
         if text:
             await self.application.bot.send_message(chat_id=self.owner_id, text=text)
 
+    async def _notify_started(self) -> None:
+        """Notify the owner after the control bot has successfully started."""
+        if self.application is None:
+            return
+        try:
+            await self.application.bot.send_message(
+                chat_id=self.owner_id,
+                text="✅ البوت يعمل الآن وجاهز لاستقبال الأوامر.",
+                reply_markup=self.keyboard(),
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "startup notification could not be delivered to owner",
+                exc_info=True,
+            )
+
     @classmethod
     def keyboard(cls) -> ReplyKeyboardMarkup:
         return ReplyKeyboardMarkup(
@@ -372,6 +389,7 @@ class ControlBot:
         await application.initialize()
         await application.start()
         await application.updater.start_polling()
+        await self._notify_started()
         try:
             await asyncio.Event().wait()
         finally:
