@@ -44,11 +44,24 @@ async def run() -> None:
     )
     await event_repository.prune(settings.event_log_keep)
 
+    control_bot = ControlBot(
+        token=settings.bot_token,
+        owner_id=settings.owner_id,
+        sources=source_repository,
+        settings=settings_repository,
+        resolver=TelegramChatResolver(session.client),
+        runtime=None,
+        session=session,
+    )
+    control_application = control_bot.build_application()
+
     publisher = Publisher(
         session.client,
+        control_application.bot,
         settings_repository,
         event_repository,
-        flood_wait_retries=settings.flood_wait_retries,
+        retry_after_retries=settings.flood_wait_retries,
+        send_interval_seconds=settings.send_interval_seconds,
     )
     listener = SourceListener(
         session.client,
@@ -57,11 +70,9 @@ async def run() -> None:
         album_window_seconds=settings.album_window_seconds,
     )
 
-    control_bot: ControlBot | None = None
-
     async def report_status(status: str) -> None:
         logger.info("relay status: %s", status)
-        if control_bot and status.startswith("telegram_"):
+        if status.startswith("telegram_"):
             await control_bot.notify_owner(status)
 
     runtime = RelayRuntime(
@@ -70,15 +81,7 @@ async def run() -> None:
         reconnect_delays=settings.reconnect_delays,
         on_status=report_status,
     )
-    control_bot = ControlBot(
-        token=settings.bot_token,
-        owner_id=settings.owner_id,
-        sources=source_repository,
-        settings=settings_repository,
-        resolver=TelegramChatResolver(session.client),
-        runtime=runtime,
-        session=session,
-    )
+    control_bot.runtime = runtime
 
     logger.info("control bot is starting")
     try:

@@ -60,6 +60,7 @@ class Settings:
     log_level: str = "INFO"
     album_window_seconds: float = 0.8
     flood_wait_retries: int = 3
+    send_interval_seconds: float = 1.1
     reconnect_delays: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0)
     event_log_keep: int = 1000
 
@@ -83,6 +84,7 @@ class Settings:
             "log_level": os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
             "album_window_seconds": _env_float("ALBUM_WINDOW_SECONDS", 0.8),
             "flood_wait_retries": _env_int("FLOOD_WAIT_RETRIES", 3),
+            "send_interval_seconds": _env_float("SEND_INTERVAL_SECONDS", 1.1),
             "reconnect_delays": _float_csv(
                 os.getenv("RECONNECT_DELAYS", ""), (5.0, 15.0, 30.0, 60.0)
             ),
@@ -106,6 +108,8 @@ class Settings:
             raise ConfigurationError("ALBUM_WINDOW_SECONDS must be positive")
         if self.flood_wait_retries < 0:
             raise ConfigurationError("FLOOD_WAIT_RETRIES must be non-negative")
+        if self.send_interval_seconds < 0:
+            raise ConfigurationError("SEND_INTERVAL_SECONDS must be non-negative")
         if not self.reconnect_delays or any(delay <= 0 for delay in self.reconnect_delays):
             raise ConfigurationError("RECONNECT_DELAYS must be positive")
         if self.event_log_keep < 0:

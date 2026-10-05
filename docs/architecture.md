@@ -2,7 +2,7 @@
 
 ## 1. الهدف
 
-مراقبة عدة قنوات Telegram عبر جلسة حساب مستخدم، وعند وصول منشور جديد يتم تنظيفه ونسخه كرسالة جديدة إلى قناة الهدف. النظام لا يستورد التاريخ القديم ولا يخزن نصوص المنشورات أو ملفاتها.
+مراقبة عدة قنوات Telegram عبر جلسة حساب مستخدم للقراءة، وعند وصول منشور جديد يتم تنظيفه ونشره كرسالة جديدة في قناة الهدف عبر Bot API. النظام لا يستورد التاريخ القديم ولا يخزن نصوص المنشورات أو ملفاتها.
 
 ## 2. حدود النسخة الأولى
 
@@ -102,7 +102,10 @@ Source Listener
         └── append fixed brand footer/link
                 │
                 ▼
-Publisher → Target Channel
+Temporary media transfer
+                │
+                ▼
+Bot API Publisher → Target Channel
                 │
                 ├── update source cursor
                 └── write small operational log
@@ -129,8 +132,6 @@ backend/
 │   │   ├── bot.py              # واجهة المالك والأوامر والأزرار
 │   │   ├── resolver.py          # حل القنوات العامة والخاصة
 │   │   └── runtime.py           # تشغيل وإيقاف الجلسة والـ Listener
-│   ├── relay_service.py       # تنسيق دورة الاستقبال والمعالجة والنشر
-│   ├── control_bot.py         # بوت الإدارة والأزرار والأوامر
 │   └── main.py                # تركيب الخدمات والإغلاق الآمن
 ├── tests/
 ├── Dockerfile
@@ -164,7 +165,7 @@ backend/
 ## 10. الأمان
 
 - `API_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER_ID` وبيانات الجلسة خارج Git.
-- جلسة الحساب ملف محلي مشفر أو StringSession في Secret Store.
+- جلسة الحساب ملف محلي بصلاحيات 600 داخل Volume خاص، ولا تدخل Git.
 - جميع أوامر بوت التحكم تتحقق من `OWNER_ID`.
 - لا يتم تسجيل نص الرسائل أو روابطها في logs.
 - مجلد SQLite والجلسة Volume دائم على الخادم.

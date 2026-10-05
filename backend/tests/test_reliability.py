@@ -111,17 +111,19 @@ def test_runtime_reconnects_and_rebaselines():
 
 def test_publisher_retries_flood_wait(monkeypatch, tmp_path):
     async def scenario():
-        class FakeFloodWait(Exception):
-            seconds = 0
+        class FakeRetryAfter(Exception):
+            retry_after = 0
 
-        monkeypatch.setattr(publisher_module, "FloodWaitError", FakeFloodWait)
+        monkeypatch.setattr(publisher_module, "RetryAfter", FakeRetryAfter)
         database = Database(tmp_path / "relay.sqlite3")
         await database.initialize()
         publisher = Publisher(
             SimpleNamespace(),
+            SimpleNamespace(),
             SettingsRepository(database),
             EventLogRepository(database),
-            flood_wait_retries=1,
+            retry_after_retries=1,
+            send_interval_seconds=0,
         )
         calls = 0
 
@@ -129,10 +131,10 @@ def test_publisher_retries_flood_wait(monkeypatch, tmp_path):
             nonlocal calls
             calls += 1
             if calls == 1:
-                raise FakeFloodWait()
+                raise FakeRetryAfter()
             return "ok"
 
-        assert await publisher._send_with_flood_wait(send) == "ok"
+        assert await publisher._send_with_retry(send) == "ok"
         assert calls == 2
 
     asyncio.run(scenario())
