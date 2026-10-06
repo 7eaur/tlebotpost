@@ -14,6 +14,8 @@ feature/v2-postgres-schema
 - `backend/app/content/__init__.py`: واجهة الحزمة.
 - `backend/tests/test_content_pipeline.py`: اختبارات القواعد الحتمية.
 
+بعد قبول المحتوى، ينتقل إلى [نظام النشر والطابور](v2-publishing.md) بدل الإرسال المباشر من هذه الطبقة.
+
 ## التدفق
 
 ```text
