@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,10 +16,21 @@ from .models import (
     DestinationStatus,
     Project,
     ProjectStatus,
+    RouteStatus,
     Source,
+    SourceCheckpoint,
     SourceRoute,
     SourceStatus,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class SourceBinding:
+    """Active source-to-destination route used by Telegram ingestion."""
+
+    route: SourceRoute
+    source: Source
+    destination: Destination
 
 
 class AccountRepository:
@@ -173,6 +186,24 @@ class SourceRouteRepository:
         )
         return (await self.session.scalars(statement)).all()
 
+    async def list_active_bindings(self) -> Sequence[SourceBinding]:
+        statement = (
+            select(SourceRoute, Source, Destination)
+            .join(Source, Source.id == SourceRoute.source_id)
+            .join(Destination, Destination.id == SourceRoute.destination_id)
+            .where(
+                SourceRoute.account_id == self.account_id,
+                SourceRoute.status == RouteStatus.ACTIVE,
+                Source.status == SourceStatus.ACTIVE,
+                Destination.status == DestinationStatus.ACTIVE,
+            )
+        )
+        rows = (await self.session.execute(statement)).all()
+        return [
+            SourceBinding(route=route, source=source, destination=destination)
+            for route, source, destination in rows
+        ]
+
     async def get(self, route_id: uuid.UUID) -> SourceRoute | None:
         statement = select(SourceRoute).where(
             SourceRoute.account_id == self.account_id,
@@ -206,3 +237,36 @@ class SourceRouteRepository:
         self.session.add(route)
         await self.session.flush()
         return route
+
+
+class SourceCheckpointRepository:
+    """Persist monotonic live-only cursors for source listeners."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get(self, source_id: uuid.UUID) -> SourceCheckpoint | None:
+        return await self.session.get(SourceCheckpoint, source_id)
+
+    async def advance(
+        self,
+        source_id: uuid.UUID,
+        message_id: int,
+        *,
+        event_at: datetime | None = None,
+    ) -> SourceCheckpoint:
+        if message_id < 0:
+            raise ValueError("message_id must be non-negative")
+        checkpoint = await self.get(source_id)
+        if checkpoint is None:
+            checkpoint = SourceCheckpoint(
+                source_id=source_id,
+                last_seen_message_id=message_id,
+                last_event_at=event_at,
+            )
+            self.session.add(checkpoint)
+        elif message_id > checkpoint.last_seen_message_id:
+            checkpoint.last_seen_message_id = message_id
+            checkpoint.last_event_at = event_at
+        await self.session.flush()
+        return checkpoint

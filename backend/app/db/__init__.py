@@ -51,6 +51,8 @@ from .repositories import (
     AccountRepository,
     DestinationRepository,
     ProjectRepository,
+    SourceBinding,
+    SourceCheckpointRepository,
     SourceRepository,
     SourceRouteRepository,
 )
@@ -111,6 +113,8 @@ __all__ = [
     "ScheduleProfile",
     "Source",
     "SourceRepository",
+    "SourceCheckpointRepository",
+    "SourceBinding",
     "SourceCheckpoint",
     "SourceRoute",
     "SourceRouteRepository",
