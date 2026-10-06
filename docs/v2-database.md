@@ -21,6 +21,7 @@ feature/v2-postgres-schema
 - `backend/app/db/services.py`: خدمات المجال والتحقق من الملكية والتعارضات وقواعد الإدخال.
 - `backend/app/db/importer.py`: تحميل وترحيل إعدادات SQLite والمصادر وcursors فقط.
 - `backend/scripts/import_legacy.py`: أداة CLI للمعاينة والتنفيذ.
+- `docs/v2-content-pipeline.md`: مسار التطبيع والفلترة ومنع التكرار.
 - `backend/app/db/__init__.py`: واجهة الاستيراد العامة.
 - `backend/tests/test_v2_database.py`: اختبارات metadata وإعدادات الاتصال دون خادم PostgreSQL.
 
