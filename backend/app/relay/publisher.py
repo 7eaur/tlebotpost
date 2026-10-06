@@ -17,7 +17,6 @@ from telegram import (
     InputMediaDocument,
     InputMediaPhoto,
     InputMediaVideo,
-    LinkPreviewOptions,
 )
 from telegram.error import RetryAfter
 
@@ -118,7 +117,7 @@ class Publisher:
                     self.bot.send_message,
                     config.target_chat_id,
                     result.text,
-                    link_preview_options=LinkPreviewOptions(is_disabled=True),
+                    disable_web_page_preview=True,
                 )
             else:
                 return await self._skip(source, messages, "empty_after_cleaning")

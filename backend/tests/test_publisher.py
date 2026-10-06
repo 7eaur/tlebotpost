@@ -87,7 +87,7 @@ def test_publisher_uses_bot_api_for_text_and_media(tmp_path):
         )
         assert text_result.published
         assert bot.sent_messages == [(-1002, "خبر 🔥\n\nحقوقنا\nhttps://t.me/ours")]
-        assert bot.sent_message_options[0]["link_preview_options"].is_disabled is True
+        assert bot.sent_message_options[0]["disable_web_page_preview"] is True
 
         media_result = await publisher.publish(
             source(), [message(2, "صورة", media="photo-a", photo=object())]
