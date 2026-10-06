@@ -1,13 +1,15 @@
 [project]
 name = "telegram-channel-relay"
 version = "0.1.0"
-description = "Live-only Telegram channel relay with bot control"
+description = "Telegram content distribution platform"
 requires-python = ">=3.11"
 dependencies = [
   "aiosqlite>=0.20,<1",
+  "asyncpg>=0.29,<1",
   "cryptography>=42,<44",
   "python-dotenv>=1,<2",
   "python-telegram-bot>=21,<23",
+  "sqlalchemy[asyncio]>=2.0,<3",
   "telethon>=1.35,<2",
 ]
 
@@ -21,6 +23,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
 
 [tool.ruff]
 target-version = "py311"

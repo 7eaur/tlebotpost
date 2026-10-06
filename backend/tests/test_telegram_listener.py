@@ -19,7 +19,11 @@ class FakeTelegramClient:
         self.handlers.append((handler, event_builder))
 
     def remove_event_handler(self, handler):
-        self.handlers = [(current, builder) for current, builder in self.handlers if current != handler]
+        self.handlers = [
+            (current, builder)
+            for current, builder in self.handlers
+            if current != handler
+        ]
 
     async def get_entity(self, chat_id):
         self.entity_requests.append(chat_id)
