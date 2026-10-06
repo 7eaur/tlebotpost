@@ -12,15 +12,14 @@ from app.telegram.session import TelegramSession
 class FakeTelegramClient:
     def __init__(self, latest_by_chat: dict[int, int]):
         self.latest_by_chat = latest_by_chat
-        self.handler = None
+        self.handlers = []
         self.entity_requests: list[int] = []
 
-    def add_event_handler(self, handler, _event_builder):
-        self.handler = handler
+    def add_event_handler(self, handler, event_builder):
+        self.handlers.append((handler, event_builder))
 
     def remove_event_handler(self, handler):
-        if self.handler == handler:
-            self.handler = None
+        self.handlers = [(current, builder) for current, builder in self.handlers if current != handler]
 
     async def get_entity(self, chat_id):
         self.entity_requests.append(chat_id)
@@ -68,6 +67,44 @@ def test_listener_skips_history_and_rebaselines_after_restart(tmp_path):
 
     asyncio.run(scenario())
 
+
+
+def test_listener_registers_each_enabled_source_independently(tmp_path):
+    async def scenario():
+        database = Database(tmp_path / "relay.sqlite3")
+        await database.initialize()
+        sources = SourceRepository(database)
+        for chat_id, latest in ((-1001, 10), (-1002, 20)):
+            await sources.upsert(
+                chat_id=chat_id,
+                input_ref=f"@source{abs(chat_id)}",
+                title=f"Source {chat_id}",
+                username=None,
+                baseline_message_id=latest,
+            )
+        client = FakeTelegramClient({-1001: 10, -1002: 20})
+        received: list[tuple[int, int]] = []
+
+        async def on_message(source, messages):
+            received.extend((source.chat_id, message.id) for message in messages)
+
+        listener = SourceListener(client, sources, on_message)
+        await listener.start()
+
+        assert len(client.handlers) == 2
+        await listener._handle_event(
+            SimpleNamespace(chat_id=-1001, message=SimpleNamespace(id=11)),
+            expected_chat_id=-1001,
+        )
+        await listener._handle_event(
+            SimpleNamespace(chat_id=-1002, message=SimpleNamespace(id=21)),
+            expected_chat_id=-1002,
+        )
+        assert received == [(-1001, 11), (-1002, 21)]
+        await listener.stop()
+        assert client.handlers == []
+
+    asyncio.run(scenario())
 
 def test_listener_ignores_disabled_sources(tmp_path):
     async def scenario():
