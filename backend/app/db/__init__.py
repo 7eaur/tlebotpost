@@ -3,6 +3,16 @@
 from .base import Base, metadata
 from .config import DatabaseConfigurationError, DatabaseSettings
 from .connection import Database
+from .importer import (
+    ImportReport,
+    LegacyImportError,
+    LegacySettingsRecord,
+    LegacySnapshot,
+    LegacySourceRecord,
+    import_legacy_database,
+    import_legacy_snapshot,
+    load_legacy_snapshot,
+)
 from .models import (
     Account,
     AccountUser,
@@ -84,6 +94,11 @@ __all__ = [
     "EntityConflictError",
     "EntityNotFoundError",
     "FilterProfile",
+    "ImportReport",
+    "LegacyImportError",
+    "LegacySettingsRecord",
+    "LegacySnapshot",
+    "LegacySourceRecord",
     "Project",
     "ProjectRepository",
     "ProjectService",
@@ -109,6 +124,9 @@ __all__ = [
     "UserSession",
     "WorkerLease",
     "metadata",
+    "import_legacy_database",
+    "import_legacy_snapshot",
+    "load_legacy_snapshot",
     "validate_chat_id",
     "validate_name",
     "validate_slug",

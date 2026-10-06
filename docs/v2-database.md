@@ -19,6 +19,8 @@ feature/v2-postgres-schema
 - `backend/app/db/connection.py`: AsyncEngine وAsyncSession والمعاملات.
 - `backend/app/db/repositories.py`: مستودعات Account/Project/Destination/Source/SourceRoute مع عزل الحساب.
 - `backend/app/db/services.py`: خدمات المجال والتحقق من الملكية والتعارضات وقواعد الإدخال.
+- `backend/app/db/importer.py`: تحميل وترحيل إعدادات SQLite والمصادر وcursors فقط.
+- `backend/scripts/import_legacy.py`: أداة CLI للمعاينة والتنفيذ.
 - `backend/app/db/__init__.py`: واجهة الاستيراد العامة.
 - `backend/tests/test_v2_database.py`: اختبارات metadata وإعدادات الاتصال دون خادم PostgreSQL.
 
@@ -72,6 +74,65 @@ healthy = await database.ping()
 5. الوسائط لا تحفظ داخل PostgreSQL؛ النموذج يحتفظ بالبيانات الوصفية و`storage_key` فقط.
 6. النص الأصلي/المطبع اختياريان على مستوى سياسة الاحتفاظ، وليس معنى وجود الحقول أن كل المحتوى سيحفظ دائمًا.
 7. مدير الاتصال يستخدم `pool_pre_ping` و`expire_on_commit=False` ويفصل `session` عن `transaction` لتجنب تسرب الاتصالات أو المعاملات.
+
+## Importer من SQLite القديم
+
+الـ Importer يقرأ الجداول القديمة التالية فقط:
+
+- `settings`.
+- `sources`.
+
+ولا يقرأ أو يرحّل:
+
+- نصوص المنشورات.
+- الصور أو الفيديوهات أو الملفات.
+- `event_log`.
+
+هذا يحافظ على سياسة النظام القديم **live-only**. قيمة `baseline_message_id` تنتقل إلى `source_checkpoints` حتى لا يعيد النظام الجديد معالجة رسائل التاريخ عند بدء الاستماع.
+
+### خريطة الترحيل
+
+| SQLite القديم | PostgreSQL v2 |
+|---|---|
+| صف `settings` | Account + Project + Destination |
+| `target_chat_id` | `destinations.telegram_chat_id` |
+| `brand_footer` و`brand_link` | `branding_profiles` |
+| كلمات التضمين والاستبعاد والوسائط | `filter_profiles` |
+| إعدادات المصدر | `sources` |
+| `baseline_message_id` | `source_checkpoints.last_seen_message_id` |
+| المصدر والهدف | `source_routes` |
+| حساب القراءة المنطقي | `telegram_accounts` بحالة disconnected |
+
+### المعاينة أولًا
+
+```bash
+cd backend
+. .venv/bin/activate
+python scripts/import_legacy.py \
+  --sqlite ../data/relay.sqlite3 \
+  --dry-run
+```
+
+وضع `dry-run` لا يفتح اتصال PostgreSQL ولا يكتب أي بيانات، ويعرض عدد المصادر وما إذا كان الهدف مضبوطًا.
+
+### التنفيذ
+
+بعد تطبيق `backend/db/schema.sql` على PostgreSQL وضبط `DATABASE_URL`:
+
+```bash
+cd backend
+. .venv/bin/activate
+python scripts/import_legacy.py \
+  --sqlite ../data/relay.sqlite3 \
+  --account-name "My account" \
+  --account-slug my-account \
+  --project-name "Legacy project" \
+  --project-slug legacy
+```
+
+التنفيذ يتم داخل معاملة PostgreSQL واحدة. إذا فشل أي جزء، يتم rollback للترحيل كاملًا. التشغيل المتكرر آمن على مستوى الهوية؛ يعيد استخدام الحساب والمشروع والهدف والمصدر والمسار بدل إنشاء نسخ جديدة.
+
+الـ Importer لا ينشئ جلسة Telegram جديدة ولا يرحّل ملف الجلسة؛ ينشئ فقط `telegram_accounts` بحالة `disconnected`. يجب تسجيل/ربط الجلسة من خلال مسار الحساب المخصص بعد الترحيل.
 
 ## المرحلة التالية: مستودعات المجال
 
