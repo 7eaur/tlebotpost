@@ -44,6 +44,19 @@ from .repositories import (
     SourceRepository,
     SourceRouteRepository,
 )
+from .services import (
+    DestinationService,
+    DomainServiceError,
+    DomainValidationError,
+    EntityConflictError,
+    EntityNotFoundError,
+    ProjectService,
+    SourceRouteService,
+    SourceService,
+    validate_chat_id,
+    validate_name,
+    validate_slug,
+)
 
 __all__ = [
     "Account",
@@ -65,9 +78,15 @@ __all__ = [
     "DeduplicationProfile",
     "Destination",
     "DestinationRepository",
+    "DestinationService",
+    "DomainServiceError",
+    "DomainValidationError",
+    "EntityConflictError",
+    "EntityNotFoundError",
     "FilterProfile",
     "Project",
     "ProjectRepository",
+    "ProjectService",
     "ProjectCategory",
     "PublicationAttempt",
     "PublishedMessage",
@@ -80,6 +99,8 @@ __all__ = [
     "SourceCheckpoint",
     "SourceRoute",
     "SourceRouteRepository",
+    "SourceRouteService",
+    "SourceService",
     "SystemEvent",
     "TelegramAccount",
     "TelegramSession",
@@ -88,4 +109,7 @@ __all__ = [
     "UserSession",
     "WorkerLease",
     "metadata",
+    "validate_chat_id",
+    "validate_name",
+    "validate_slug",
 ]

@@ -16,6 +16,7 @@ from .models import (
     ProjectStatus,
     Source,
     SourceRoute,
+    SourceStatus,
 )
 
 
@@ -117,7 +118,7 @@ class SourceRepository:
         self.session = session
         self.account_id = account_id
 
-    async def list(self, *, status: str | None = None) -> Sequence[Source]:
+    async def list(self, *, status: SourceStatus | None = None) -> Sequence[Source]:
         statement = select(Source).where(Source.account_id == self.account_id)
         if status is not None:
             statement = statement.where(Source.status == status)
@@ -176,6 +177,16 @@ class SourceRouteRepository:
         statement = select(SourceRoute).where(
             SourceRoute.account_id == self.account_id,
             SourceRoute.id == route_id,
+        )
+        return await self.session.scalar(statement)
+
+    async def get_for_pair(
+        self, source_id: uuid.UUID, destination_id: uuid.UUID
+    ) -> SourceRoute | None:
+        statement = select(SourceRoute).where(
+            SourceRoute.account_id == self.account_id,
+            SourceRoute.source_id == source_id,
+            SourceRoute.destination_id == destination_id,
         )
         return await self.session.scalar(statement)
 

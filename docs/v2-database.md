@@ -18,6 +18,7 @@ feature/v2-postgres-schema
 - `backend/app/db/config.py`: قراءة والتحقق من إعدادات الاتصال.
 - `backend/app/db/connection.py`: AsyncEngine وAsyncSession والمعاملات.
 - `backend/app/db/repositories.py`: مستودعات Account/Project/Destination/Source/SourceRoute مع عزل الحساب.
+- `backend/app/db/services.py`: خدمات المجال والتحقق من الملكية والتعارضات وقواعد الإدخال.
 - `backend/app/db/__init__.py`: واجهة الاستيراد العامة.
 - `backend/tests/test_v2_database.py`: اختبارات metadata وإعدادات الاتصال دون خادم PostgreSQL.
 
@@ -86,7 +87,36 @@ Account
 
 كل مستودع يستقبل `account_id` ويضيفه إلى استعلاماته، حتى لا يصبح الوصول إلى بيانات حساب آخر ممكنًا من خلال الاستعلامات العادية. المستودعات لا تنفذ `commit` بنفسها؛ caller يختار `database.transaction()` لإدارة المعاملة.
 
-هذه ليست طبقة الخدمات النهائية بعد. التحقق من أن المصدر والهدف تابعان للحساب نفسه سيضاف في Service Layer قبل إنشاء المسار، مع اختبار معاملات PostgreSQL حقيقية في المرحلة اللاحقة.
+المستودعات لا تنفذ التحقق المركب بين الكيانات؛ هذا التحقق أصبح مسؤولية Service Layer الموضحة أدناه، مع بقاء اختبار معاملات PostgreSQL الحقيقية ضمن مرحلة التكامل اللاحقة.
+
+## Service Layer
+
+تم تنفيذ الطبقة التالية فوق المستودعات:
+
+- `ProjectService`: إنشاء وقراءة المشاريع مع تطبيع الاسم والـ slug.
+- `DestinationService`: لا ينشئ هدفًا إلا إذا كان المشروع تابعًا للحساب نفسه.
+- `SourceService`: يتحقق من ملكية حساب Telegram قبل إنشاء المصدر.
+- `SourceRouteService`: يتحقق من ملكية المصدر والهدف، ويمنع تكرار الربط بينهما.
+
+الأخطاء المتوقعة موحدة:
+
+- `EntityNotFoundError`: الكيان غير موجود أو خارج حساب المستخدم.
+- `EntityConflictError`: العملية ستنشئ تعارضًا أو ربطًا مكررًا.
+- `DomainValidationError`: البيانات لا تطابق قواعد المجال.
+
+الخدمات لا تنفذ `commit` بنفسها. يجب استدعاؤها داخل:
+
+```python
+async with database.transaction() as session:
+    service = DestinationService(session, account_id)
+    destination = await service.create(
+        project_id=project_id,
+        name="Main target",
+        telegram_chat_id=-100123,
+    )
+```
+
+بهذا تظل المعاملة مسؤولية طبقة التشغيل، ويمكن ضم إنشاء المشروع والهدف والمسار في معاملة واحدة عند الحاجة.
 
 ## التحقق المحلي
 
