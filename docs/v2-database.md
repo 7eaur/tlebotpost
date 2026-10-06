@@ -17,6 +17,7 @@ feature/v2-postgres-schema
 - `backend/app/db/models.py`: نماذج SQLAlchemy 2.0 المطابقة للجداول.
 - `backend/app/db/config.py`: قراءة والتحقق من إعدادات الاتصال.
 - `backend/app/db/connection.py`: AsyncEngine وAsyncSession والمعاملات.
+- `backend/app/db/repositories.py`: مستودعات Account/Project/Destination/Source/SourceRoute مع عزل الحساب.
 - `backend/app/db/__init__.py`: واجهة الاستيراد العامة.
 - `backend/tests/test_v2_database.py`: اختبارات metadata وإعدادات الاتصال دون خادم PostgreSQL.
 
@@ -70,6 +71,22 @@ healthy = await database.ping()
 5. الوسائط لا تحفظ داخل PostgreSQL؛ النموذج يحتفظ بالبيانات الوصفية و`storage_key` فقط.
 6. النص الأصلي/المطبع اختياريان على مستوى سياسة الاحتفاظ، وليس معنى وجود الحقول أن كل المحتوى سيحفظ دائمًا.
 7. مدير الاتصال يستخدم `pool_pre_ping` و`expire_on_commit=False` ويفصل `session` عن `transaction` لتجنب تسرب الاتصالات أو المعاملات.
+
+## المرحلة التالية: مستودعات المجال
+
+تمت إضافة مستودعات أولية للكيانات التي تشكل مسار الإدارة:
+
+```text
+Account
+  └── Project
+      ├── Destination
+      └── SourceRoute
+          └── Source
+```
+
+كل مستودع يستقبل `account_id` ويضيفه إلى استعلاماته، حتى لا يصبح الوصول إلى بيانات حساب آخر ممكنًا من خلال الاستعلامات العادية. المستودعات لا تنفذ `commit` بنفسها؛ caller يختار `database.transaction()` لإدارة المعاملة.
+
+هذه ليست طبقة الخدمات النهائية بعد. التحقق من أن المصدر والهدف تابعان للحساب نفسه سيضاف في Service Layer قبل إنشاء المسار، مع اختبار معاملات PostgreSQL حقيقية في المرحلة اللاحقة.
 
 ## التحقق المحلي
 

@@ -37,10 +37,18 @@ from .models import (
     UserSession,
     WorkerLease,
 )
+from .repositories import (
+    AccountRepository,
+    DestinationRepository,
+    ProjectRepository,
+    SourceRepository,
+    SourceRouteRepository,
+)
 
 __all__ = [
     "Account",
     "AccountUser",
+    "AccountRepository",
     "ApiToken",
     "AuditLog",
     "Base",
@@ -56,8 +64,10 @@ __all__ = [
     "DatabaseSettings",
     "DeduplicationProfile",
     "Destination",
+    "DestinationRepository",
     "FilterProfile",
     "Project",
+    "ProjectRepository",
     "ProjectCategory",
     "PublicationAttempt",
     "PublishedMessage",
@@ -66,8 +76,10 @@ __all__ = [
     "Role",
     "ScheduleProfile",
     "Source",
+    "SourceRepository",
     "SourceCheckpoint",
     "SourceRoute",
+    "SourceRouteRepository",
     "SystemEvent",
     "TelegramAccount",
     "TelegramSession",
