@@ -53,7 +53,7 @@ class RuntimeV3:
         database = Database(settings.database)
         components: list[RuntimeComponent] = []
         if settings.telegram is not None and settings.ingestion is not None:
-            from app.v3.telegram import TelethonUserAdapter, TelegramIngestionComponent
+            from app.v3.telegram import TelegramIngestionComponent, TelethonUserAdapter
 
             adapter = TelethonUserAdapter(
                 api_id=settings.telegram.api_id,
