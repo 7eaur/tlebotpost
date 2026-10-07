@@ -49,7 +49,7 @@ class RuntimeV3:
         self._logger = logging.getLogger(__name__)
 
     @classmethod
-    def from_settings(cls, settings: RuntimeV3Settings) -> "RuntimeV3":
+    def from_settings(cls, settings: RuntimeV3Settings) -> RuntimeV3:
         return cls(database=Database(settings.database), settings=settings)
 
     async def start(self) -> None:
