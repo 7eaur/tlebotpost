@@ -587,26 +587,26 @@ def create_web_app(runtime: Any) -> FastAPI:
                         .order_by(SourceRoute.created_at)
                         .limit(1)
                     )
-                    session.add(
-                        SourceRoute(
-                            account_id=runtime.settings.account_id,
-                            source_id=source.id,
-                            destination_id=destination.id,
-                            status=RouteStatus.ACTIVE,
-                            filter_profile_id=getattr(template, "filter_profile_id", None),
-                            transform_profile_id=getattr(template, "transform_profile_id", None),
-                            branding_profile_id=getattr(template, "branding_profile_id", None),
-                            schedule_profile_id=getattr(template, "schedule_profile_id", None),
-                            deduplication_profile_id=(
-                                getattr(template, "deduplication_profile_id", None)
-                                or destination.deduplication_profile_id
-                            ),
-                            retention_policy_id=(
-                                getattr(template, "retention_policy_id", None)
-                                or destination.retention_policy_id
-                            ),
-                        )
+                    route = SourceRoute(
+                        account_id=runtime.settings.account_id,
+                        source_id=source.id,
+                        destination_id=destination.id,
+                        status=RouteStatus.ACTIVE,
+                        filter_profile_id=getattr(template, "filter_profile_id", None),
+                        transform_profile_id=getattr(template, "transform_profile_id", None),
+                        branding_profile_id=getattr(template, "branding_profile_id", None),
+                        schedule_profile_id=getattr(template, "schedule_profile_id", None),
+                        deduplication_profile_id=(
+                            getattr(template, "deduplication_profile_id", None)
+                            or destination.deduplication_profile_id
+                        ),
+                        retention_policy_id=(
+                            getattr(template, "retention_policy_id", None)
+                            or destination.retention_policy_id
+                        ),
                     )
+                    session.add(route)
+                    await session.flush()
                 else:
                     existing.status = RouteStatus.ACTIVE
         await audit.record(
