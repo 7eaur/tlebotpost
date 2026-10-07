@@ -8,6 +8,8 @@
 feature/v2-postgres-schema
 ```
 
+يتم تشغيل هذه الطبقات ضمن [Runtime v2 المتكامل](v2-runtime.md)، وليس كعمليات مستقلة في التشغيل التجريبي.
+
 ## الملفات
 
 - `backend/app/publishing/scheduler.py`: حساب أوقات النشر.
