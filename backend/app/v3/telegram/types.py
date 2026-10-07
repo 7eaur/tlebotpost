@@ -31,7 +31,7 @@ class SourceEvent:
         source_id: uuid.UUID,
         chat_id: int,
         messages: tuple[Any, ...],
-    ) -> "SourceEvent":
+    ) -> SourceEvent:
         if not messages:
             raise ValueError("source event requires at least one Telegram message")
 
