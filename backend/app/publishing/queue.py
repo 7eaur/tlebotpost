@@ -20,6 +20,7 @@ from app.db.models import (
     PublishJob,
     ScheduleProfile,
     SourceRoute,
+    SystemEvent,
 )
 
 from .scheduler import next_run_at
@@ -252,6 +253,17 @@ class PublishQueue:
                     error_message=error_message,
                     finished_at=datetime.now(UTC),
                 )
+                session.add(
+                    SystemEvent(
+                        account_id=self.account_id,
+                        event_type="publish_retry",
+                        severity="warning",
+                        entity_type="publish_job",
+                        entity_id=job.id,
+                        error_code=error_code,
+                        details={"attempt": job.attempt_count, "retry_at": retry_at.isoformat()},
+                    )
+                )
 
     async def mark_failed(
         self,
@@ -278,6 +290,17 @@ class PublishQueue:
                     error_code=error_code,
                     error_message=error_message,
                     finished_at=datetime.now(UTC),
+                )
+                session.add(
+                    SystemEvent(
+                        account_id=self.account_id,
+                        event_type="publish_failed",
+                        severity="error",
+                        entity_type="publish_job",
+                        entity_id=job.id,
+                        error_code=error_code,
+                        details={"attempt": job.attempt_count, "message": error_message[:500]},
+                    )
                 )
 
     async def requeue(self, job_id: uuid.UUID) -> PublishJob:
