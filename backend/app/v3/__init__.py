@@ -4,10 +4,17 @@ This package is intentionally isolated from the legacy V1/V2 runtime while the
 rebuild is developed and verified.
 """
 
-from .config import RuntimeEnvironment, RuntimeV3Settings, TelegramV3Settings, V3ConfigurationError
+from .config import (
+    IngestionV3Settings,
+    RuntimeEnvironment,
+    RuntimeV3Settings,
+    TelegramV3Settings,
+    V3ConfigurationError,
+)
 from .runtime import RuntimeState, RuntimeV3
 
 __all__ = [
+    "IngestionV3Settings",
     "RuntimeEnvironment",
     "RuntimeState",
     "RuntimeV3",
