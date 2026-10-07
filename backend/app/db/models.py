@@ -67,6 +67,7 @@ class RouteStatus(StrEnum):
 class RouteExecutionStatus(StrEnum):
     RECEIVED = "received"
     PROCESSING = "processing"
+    READY_FOR_DEDUP = "ready_for_dedup"
     FILTERED = "filtered"
     DUPLICATE = "duplicate"
     QUEUED = "queued"

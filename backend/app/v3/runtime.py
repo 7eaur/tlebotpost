@@ -53,8 +53,13 @@ class RuntimeV3:
         database = Database(settings.database)
         components: list[RuntimeComponent] = []
         if settings.telegram is not None and settings.ingestion is not None:
+            from app.v3.content import ContentProcessingCoordinator
             from app.v3.telegram import TelegramIngestionComponent, TelethonUserAdapter
 
+            processor = ContentProcessingCoordinator(
+                database.session_factory,
+                settings.ingestion.account_id,
+            )
             adapter = TelethonUserAdapter(
                 api_id=settings.telegram.api_id,
                 api_hash=settings.telegram.api_hash,
@@ -68,6 +73,7 @@ class RuntimeV3:
                     telegram_account_id=settings.ingestion.telegram_account_id,
                     album_window_seconds=settings.ingestion.album_window_seconds,
                     reconnect_delays=settings.ingestion.reconnect_delays,
+                    on_registration=processor.process_registration,
                 )
             )
         return cls(
