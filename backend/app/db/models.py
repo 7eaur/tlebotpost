@@ -141,8 +141,12 @@ class ScheduleKind(StrEnum):
 
 def pg_enum(enum_class: type[StrEnum], name: str) -> ENUM:
     """Reference an enum created by schema.sql without recreating its type."""
-    return ENUM(\n        enum_class,\n        name=name,\n        create_type=False,\n        values_callable=lambda members: [member.value for member in members],\n    )
-
+    return ENUM(
+        enum_class,
+        name=name,
+        create_type=False,
+        values_callable=lambda members: [member.value for member in members],
+    )
 
 class Account(Base):
     __tablename__ = "accounts"
