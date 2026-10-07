@@ -9,6 +9,7 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY app ./app
 COPY scripts ./scripts
+COPY db ./db
 RUN pip install --no-cache-dir .
 
 RUN mkdir -p /app/data
