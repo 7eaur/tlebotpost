@@ -75,6 +75,11 @@ class AlbumCollectorV3:
                     name=f"v3-album-{source.source_id}",
                 )
 
+            message_id = int(getattr(message, "id", 0) or 0)
+            if message_id <= 0:
+                raise ValueError("Telegram message id must be positive")
+            if any(int(getattr(item, "id", 0) or 0) == message_id for item in pending.messages):
+                return
             pending.messages.append(message)
 
     async def flush_all(self) -> None:
