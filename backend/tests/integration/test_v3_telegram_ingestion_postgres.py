@@ -108,7 +108,7 @@ async def _seed(session):
         account_id=account.id,
         label=f"telegram-{uuid.uuid4().hex[:8]}",
         session_key=f"session-{uuid.uuid4()}",
-        status=TelegramAccountStatus.ACTIVE,
+        status=TelegramAccountStatus.DISCONNECTED,
     )
     session.add_all([project, telegram])
     await session.flush()
@@ -187,6 +187,10 @@ async def test_v3_ingestion_live_baseline_album_and_reconnect():
         await component.start()
 
         async with database.session() as session:
+            telegram_row = await session.get(TelegramAccount, telegram_account_id)
+            assert telegram_row is not None
+            assert telegram_row.status is TelegramAccountStatus.ACTIVE
+            assert telegram_row.last_connected_at is not None
             checkpoint = await session.get(SourceCheckpoint, source_id)
             assert checkpoint is not None
             assert checkpoint.last_seen_message_id == 10
