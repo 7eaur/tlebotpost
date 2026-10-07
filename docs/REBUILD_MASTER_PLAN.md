@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-4 complete; Phase 5 next (external V3 Telegram pilot deferred until isolated session)
+Status: Phases 0-5 complete; Phase 6 next (external V3 Telegram pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -192,9 +192,21 @@ Boundary:
 - no media download/staging;
 - no production migration/cutover.
 
-### Phase 5 — Deduplication
-Implement typed fingerprints, time windows, concurrency protection and complete edge-case tests.
-Gate: unique live messages are never false duplicates; deliberate duplicates are reliably rejected.
+### Phase 5 — Deduplication — COMPLETE / VERIFIED
+Implemented:
+- typed Telegram/text/media/combined fingerprints;
+- no empty text/media fingerprints;
+- route scope by default;
+- explicit destination scope for cross-source comparison;
+- profile time windows;
+- PostgreSQL advisory-lock concurrency protection;
+- durable RouteExecution-linked fingerprint observations;
+- `ready_for_queue` handoff state;
+- typed duplicate/unique reason codes.
+
+Gate: PASSED in GitHub Actions Run `37699795962` at code head `e93e1b446a1f9a88bef7cda082ffaf25c52d6e5e`.
+
+Verified regressions include the V2 empty-media/text fingerprint defect, real duplicate matching, time-window expiry, explicit cross-source scope and concurrent duplicate races.
 
 ### Phase 6 — Publish queue and reliability
 Durable jobs, claim/lease, retries/backoff/FloodWait, max attempts, stuck-job recovery and idempotent enqueue.
@@ -247,8 +259,8 @@ Completed:
 6. build route-specific content processing through `ready_for_dedup`.
 
 Next:
-1. implement Phase 5 typed deduplication against the empty-component regression contract;
-2. continue phase-by-phase through queue reliability, media/publishing and Control Bot V3;
+1. implement Phase 6 durable publish-queue and reliability handoff from `ready_for_queue`;
+2. continue through media/publishing and Control Bot V3;
 3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
 4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 

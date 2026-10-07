@@ -6,7 +6,7 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 4 — Content Processing
+Phase 5 — Deduplication
 
 Status: COMPLETE / VERIFIED IN CI  
 External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE
@@ -220,6 +220,162 @@ Phase 4 integration evidence covers:
 - `ready_for_dedup` persistence;
 - all-filtered fan-out allowing committed checkpoint advancement.
 
+## Phase 5 delivered
+
+### Typed fingerprint contract
+
+V3 now emits explicit fingerprint types:
+- `telegram_identity`;
+- `text`;
+- `media`;
+- `combined`.
+
+The V2 empty-component defect is removed by contract:
+- no text fingerprint is created when normalized text is empty;
+- no media fingerprint is created when the media set is empty;
+- combined fingerprints are created only from meaningful enabled content signals.
+
+### Scoped deduplication
+
+Default V3 content-dedup scope is `route`.
+
+This prevents accidental cross-source comparison.
+
+Cross-source deduplication is enabled only when a profile explicitly sets:
+
+```json
+{"scope": "destination"}
+```
+
+Route-level DeduplicationProfile overrides destination fallback.
+
+### Time windows
+
+Content fingerprints are matched only inside the current profile `window_seconds`.
+
+Telegram identity remains an exact identity signal and is not reduced to a content-window comparison.
+
+### Concurrency protection
+
+Dedup decisions are protected with PostgreSQL transaction-scoped advisory locks derived from:
+- account;
+- dedup scope;
+- fingerprint type;
+- fingerprint value.
+
+Matching checks and fingerprint recording occur in the same database transaction.
+
+The PostgreSQL integration suite verifies that two matching messages processed concurrently produce exactly one unique winner and one duplicate outcome.
+
+### Durable fingerprint observations
+
+Added `route_fingerprints`, linked to `RouteExecution`.
+
+It records:
+- account;
+- route execution;
+- scope key;
+- fingerprint type;
+- fingerprint value;
+- observation timestamp.
+
+This table is separate from the V2 `content_fingerprints` table because V2 storage is ContentItem-bound and its permanent uniqueness constraint does not model the V3 time-window contract correctly.
+
+### RouteExecution handoff
+
+Migration `20261008_03` adds:
+
+`ready_for_queue`
+
+Phase 5 state flow:
+
+```text
+ready_for_dedup
+  -> duplicate
+  -> ready_for_queue
+  -> failed
+```
+
+`ready_for_queue` is intentionally:
+- not final;
+- not checkpoint-safe.
+
+A unique item therefore cannot advance `last_committed_message_id` until Phase 6 has persisted the publish-queue outcome.
+
+A duplicate is final/checkpoint-safe and uses the existing checkpoint coordinator.
+
+### Reason codes
+
+Unique / bypass:
+- `dedup_unique`;
+- `dedup_disabled`;
+- `dedup_no_signals`.
+
+Duplicate:
+- `duplicate_exact_identity`;
+- `duplicate_matching_text`;
+- `duplicate_matching_media`;
+- `duplicate_matching_combined`.
+
+Failure:
+- `deduplication_error`.
+
+### Runtime integration
+
+`RuntimeV3.from_settings()` now wires:
+
+```text
+ContentProcessingCoordinator
+        -> DeduplicationCoordinator
+```
+
+No queue/publisher behavior is introduced by Phase 5.
+
+## Phase 5 verification evidence
+
+Verified code head:
+
+`e93e1b446a1f9a88bef7cda082ffaf25c52d6e5e`
+
+GitHub Actions:
+
+- Run ID: `37699795962`
+- Conclusion: `success`
+
+Passed:
+- focused V3 phase-contract tests: 31 passed;
+- full non-integration suite: 109 passed, 16 deselected;
+- Ruff: all checks passed;
+- compileall;
+- PostgreSQL 16 V2-reference schema bootstrap;
+- Alembic upgrade through `20261008_03`;
+- Alembic downgrade to base;
+- Alembic re-upgrade through `20261008_03`;
+- PostgreSQL V3 domain + ingestion + content + dedup integration: 15 passed;
+- V3 CLI;
+- Docker build.
+
+Phase 5 regression/integration evidence covers:
+- distinct text-only messages are not false duplicates from empty media;
+- media-only messages are not false duplicates from empty text;
+- real matching text is rejected with typed reason;
+- real matching media is rejected with typed reason;
+- content duplicate windows expire correctly;
+- destination scope enables explicit cross-source deduplication;
+- concurrent matching messages produce one unique winner and one duplicate.
+
+## Phase 5 boundary
+
+Phase 5 does not:
+- create PublishJob rows;
+- claim jobs;
+- retry/failover publishing;
+- stage Telegram media;
+- call Bot API;
+- alter Railway production.
+
+Processed publish payload durability/recovery must be completed as part of the Phase 6 queue handoff before V3 is eligible for production cutover.
+
 ## External Telegram pilot
 
 Not executed for V3 yet.
@@ -235,24 +391,24 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `docs/v3-phase2-core-domain.md`
 - `docs/v3-phase3-telegram-ingestion.md`
 - `docs/v3-phase4-content-processing.md`
+- `docs/v3-phase5-deduplication.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
 ## Next phase
 
-Phase 5 — Deduplication
+Phase 6 — Publish Queue and Reliability
 
 Required work:
-- typed fingerprint generation;
-- exact Telegram/event identity handling;
-- text fingerprint only when normalized text is non-empty;
-- media fingerprint only when media exists;
-- combined fingerprint only from meaningful components;
-- destination/route scope and configured time window;
-- concurrency-safe uniqueness semantics;
-- deliberate duplicate vs unique-message reason codes;
-- explicit consumption of `ready_for_dedup`;
-- regression tests for the V2 empty-text/empty-media fingerprint defect;
-- PostgreSQL concurrency/integration coverage.
+- durable queue handoff from `ready_for_queue`;
+- route-specific publish payload durability;
+- idempotent enqueue;
+- claim/lease semantics;
+- retries/backoff;
+- FloodWait-aware retry scheduling;
+- max attempts;
+- stuck-job recovery;
+- restart/crash recovery tests;
+- checkpoint transition only after durable queue representation.
 
-Phase 5 must not add queue/publisher behavior beyond the minimum handoff contract. Publish-queue reliability remains Phase 6.
+Phase 6 must not perform the full Telegram media publishing lifecycle; that remains Phase 7.

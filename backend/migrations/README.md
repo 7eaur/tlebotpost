@@ -36,6 +36,22 @@ Downgrade behavior:
 
 The full upgrade/downgrade/re-upgrade roundtrip is verified in CI against PostgreSQL 16.
 
+### `20261008_03_deduplication.py`
+
+Adds:
+- `ready_for_queue` to `route_execution_status`;
+- `route_fingerprints` for V3 typed dedup observations;
+- lookup index across account/scope/type/fingerprint/time.
+
+The table is RouteExecution-linked and intentionally separate from V2 `content_fingerprints`.
+
+The migration downgrade:
+1. drops the V3 route-fingerprint table;
+2. maps `ready_for_queue` back to `ready_for_dedup`;
+3. recreates the previous PostgreSQL enum.
+
+The complete upgrade/downgrade/re-upgrade path through `20261008_03` is verified in CI.
+
 ## Safety rules
 
 - do not auto-run legacy SQLite import from application startup;
