@@ -31,7 +31,7 @@ class TelegramV3Settings:
     session_path: Path
 
     @classmethod
-    def from_env(cls) -> "TelegramV3Settings":
+    def from_env(cls) -> TelegramV3Settings:
         try:
             values = cls(
                 api_id=int(_required("API_ID")),
@@ -68,7 +68,7 @@ class RuntimeV3Settings:
         env_file: str | Path | None = ".env",
         *,
         require_telegram: bool | None = None,
-    ) -> "RuntimeV3Settings":
+    ) -> RuntimeV3Settings:
         if env_file is not None:
             load_dotenv(env_file, override=False)
 
