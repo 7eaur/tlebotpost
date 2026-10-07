@@ -155,17 +155,16 @@ class TelegramIngestionComponent:
         if chat_id != source.chat_id:
             return
 
-        async with self._source_locks[source.source_id]:
-            if message_id <= self._seen_floor.get(source.source_id, 0):
-                return
-            await self._collector.add(
-                AlbumSource(
-                    account_id=self.account_id,
-                    source_id=source.source_id,
-                    chat_id=source.chat_id,
-                ),
-                message,
-            )
+        if message_id <= self._seen_floor.get(source.source_id, 0):
+            return
+        await self._collector.add(
+            AlbumSource(
+                account_id=self.account_id,
+                source_id=source.source_id,
+                chat_id=source.chat_id,
+            ),
+            message,
+        )
 
     async def _reload_subscriptions(self, *, rebaseline: bool) -> None:
         await self._remove_subscriptions()
