@@ -280,6 +280,11 @@ def create_web_app(runtime: Any) -> FastAPI:
             await runtime.reload_ingestion()
         else:
             raise HTTPException(404)
+        await audit.record(
+            f"runtime.{action}",
+            "runtime",
+            actor="web_owner",
+        )
         return RedirectResponse("/", status_code=303)
 
     @app.post("/actions/source/{source_id}/{action}")
@@ -298,6 +303,13 @@ def create_web_app(runtime: Any) -> FastAPI:
                 if source is None:
                     raise HTTPException(404)
                 source.status = status_value
+        await audit.record(
+            "source.status",
+            "source",
+            entity_id=source_id,
+            actor="web_owner",
+            details={"status": status_value.value},
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
@@ -319,6 +331,13 @@ def create_web_app(runtime: Any) -> FastAPI:
                 if destination is None:
                     raise HTTPException(404)
                 destination.status = status_value
+        await audit.record(
+            "destination.status",
+            "destination",
+            entity_id=destination_id,
+            actor="web_owner",
+            details={"status": status_value.value},
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
@@ -338,6 +357,13 @@ def create_web_app(runtime: Any) -> FastAPI:
                 if route is None:
                     raise HTTPException(404)
                 route.status = status_value
+        await audit.record(
+            "route.status",
+            "source_route",
+            entity_id=route_id,
+            actor="web_owner",
+            details={"status": status_value.value},
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
@@ -351,6 +377,12 @@ def create_web_app(runtime: Any) -> FastAPI:
             await runtime.queue.cancel(job_id)
         else:
             raise HTTPException(404)
+        await audit.record(
+            f"job.{action}",
+            "publish_job",
+            entity_id=job_id,
+            actor="web_owner",
+        )
         return RedirectResponse("/", status_code=303)
 
     @app.post("/actions/source/add")
@@ -441,6 +473,13 @@ def create_web_app(runtime: Any) -> FastAPI:
                         session.add(route)
                     else:
                         route.status = RouteStatus.ACTIVE
+        await audit.record(
+            "source.upsert",
+            "source",
+            entity_id=source.id,
+            actor="web_owner",
+            details={"title": source.title},
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
@@ -570,6 +609,16 @@ def create_web_app(runtime: Any) -> FastAPI:
                     )
                 else:
                     existing.status = RouteStatus.ACTIVE
+        await audit.record(
+            "route.upsert",
+            "source_route",
+            entity_id=existing.id if existing is not None else route.id,
+            actor="web_owner",
+            details={
+                "source_id": str(source_id),
+                "destination_id": str(destination_id),
+            },
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
