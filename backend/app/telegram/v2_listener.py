@@ -273,20 +273,23 @@ class V2TelegramListener:
                 if checkpoint is not None and message_id <= checkpoint.last_seen_message_id:
                     return
 
-            for binding in bindings:
-                await self.on_message(
-                    IngestionEvent(
-                        account_id=self.account_id,
-                        source_id=binding.source.id,
-                        route_id=binding.route.id,
-                        destination_id=binding.destination.id,
-                        chat_id=chat_id,
-                        message_id=message_id,
-                        grouped_id=grouped_id,
-                        message=payload,
-                        received_at=received_at,
-                    )
+            events_to_deliver = [
+                IngestionEvent(
+                    account_id=self.account_id,
+                    source_id=binding.source.id,
+                    route_id=binding.route.id,
+                    destination_id=binding.destination.id,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    grouped_id=grouped_id,
+                    message=payload,
+                    received_at=received_at,
                 )
+                for binding in bindings
+            ]
+            await asyncio.gather(
+                *(self.on_message(item) for item in events_to_deliver)
+            )
 
             async with self.session_factory() as write_session:
                 async with write_session.begin():
