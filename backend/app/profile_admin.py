@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from datetime import time
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
