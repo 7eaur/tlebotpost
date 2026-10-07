@@ -158,6 +158,7 @@ async def import_legacy_snapshot(
     telegram_account_label: str = "legacy-user",
     telegram_session_key: str = "legacy-user",
     dry_run: bool = False,
+    account_id: uuid.UUID | None = None,
 ) -> ImportReport:
     """Import a previously loaded snapshot in one PostgreSQL transaction."""
     report = ImportReport(dry_run=dry_run)
@@ -173,8 +174,8 @@ async def import_legacy_snapshot(
         account = await _get_or_create(
             session,
             Account,
-            {"slug": account_slug},
-            {"name": account_name, "status": "active"},
+            ({"id": account_id} if account_id is not None else {"slug": account_slug}),
+            {"name": account_name, "slug": account_slug, "status": "active"},
         )
         report.account_id = account.id
 
