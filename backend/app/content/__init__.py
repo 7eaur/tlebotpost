@@ -1,5 +1,6 @@
 """Content processing pipeline for Telegram ingestion events."""
 
+from .classification import CategoryMatch, ClassificationEngine
 from .pipeline import (
     ContentNormalizer,
     ContentPipeline,
@@ -11,6 +12,8 @@ from .pipeline import (
 )
 
 __all__ = [
+    "CategoryMatch",
+    "ClassificationEngine",
     "ContentNormalizer",
     "ContentPipeline",
     "ExtractedMedia",
