@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import defaultdict
 from contextlib import ExitStack
 from dataclasses import dataclass
 from io import BytesIO
@@ -46,19 +47,23 @@ class BotPublisher:
         client_manager: Any | None = None,
         retry_after_retries: int = 3,
         send_interval_seconds: float = 1.1,
+        max_concurrent_sends: int = 4,
     ) -> None:
         if retry_after_retries < 0:
             raise ValueError("retry_after_retries must be non-negative")
         if send_interval_seconds < 0:
             raise ValueError("send_interval_seconds must be non-negative")
+        if max_concurrent_sends <= 0:
+            raise ValueError("max_concurrent_sends must be positive")
         self.bot = bot
         self.session_factory = session_factory
         self.account_id = account_id
         self.client_manager = client_manager
         self.retry_after_retries = retry_after_retries
         self.send_interval_seconds = send_interval_seconds
-        self._send_lock = asyncio.Lock()
-        self._last_send_at = 0.0
+        self._send_semaphore = asyncio.Semaphore(max_concurrent_sends)
+        self._chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._last_send_at: dict[int, float] = {}
         self._logger = logging.getLogger(__name__)
 
     async def publish_job(self, job_id: Any) -> BotPublishResult:
@@ -236,23 +241,32 @@ class BotPublisher:
         return InputFile(buffer, filename=file_name)
 
     async def _send_with_retry(self, method: Any, *args: Any, **kwargs: Any) -> Any:
-        async with self._send_lock:
-            for attempt in range(self.retry_after_retries + 1):
-                await self._wait_for_slot()
-                try:
-                    result = await method(*args, **kwargs)
-                except RetryAfter as exc:
-                    self._logger.warning("Telegram RetryAfter: seconds=%s", exc.retry_after)
-                    if attempt >= self.retry_after_retries:
-                        raise
-                    await asyncio.sleep(float(exc.retry_after))
-                else:
-                    self._last_send_at = time.monotonic()
-                    return result
+        if not args:
+            raise PublishError("Telegram send call is missing chat_id")
+        chat_id = int(args[0])
+        async with self._send_semaphore:
+            async with self._chat_locks[chat_id]:
+                for attempt in range(self.retry_after_retries + 1):
+                    await self._wait_for_slot(chat_id)
+                    try:
+                        result = await method(*args, **kwargs)
+                    except RetryAfter as exc:
+                        self._logger.warning(
+                            "Telegram RetryAfter: chat_id=%s seconds=%s",
+                            chat_id,
+                            exc.retry_after,
+                        )
+                        if attempt >= self.retry_after_retries:
+                            raise
+                        await asyncio.sleep(float(exc.retry_after))
+                    else:
+                        self._last_send_at[chat_id] = time.monotonic()
+                        return result
         raise PublishError("send retry loop ended unexpectedly")
 
-    async def _wait_for_slot(self) -> None:
-        remaining = self.send_interval_seconds - (time.monotonic() - self._last_send_at)
+    async def _wait_for_slot(self, chat_id: int) -> None:
+        last_send = self._last_send_at.get(chat_id, 0.0)
+        remaining = self.send_interval_seconds - (time.monotonic() - last_send)
         if remaining > 0:
             await asyncio.sleep(remaining)
 
@@ -267,57 +281,75 @@ class PublishWorker:
         *,
         retry_delay_seconds: int = 60,
         max_attempts: int = 8,
+        concurrency: int = 4,
         on_published: Any | None = None,
     ) -> None:
         if retry_delay_seconds <= 0:
             raise ValueError("retry_delay_seconds must be positive")
         if max_attempts <= 0:
             raise ValueError("max_attempts must be positive")
+        if concurrency <= 0:
+            raise ValueError("concurrency must be positive")
         self.queue = queue
         self.publisher = publisher
         self.retry_delay_seconds = retry_delay_seconds
         self.max_attempts = max_attempts
+        self.concurrency = concurrency
         self.on_published = on_published
         self._logger = logging.getLogger(__name__)
 
     async def run_once(self, *, limit: int = 10) -> int:
         jobs = await self.queue.claim_due(limit=limit)
-        for job in jobs:
-            try:
-                result = await self.publisher.publish_job(job.id)
-            except RetryAfter as exc:
-                await self._retry_or_fail(job, "retry_after", str(exc), float(exc.retry_after))
-            except MediaUnavailableError as exc:
-                await self._retry_or_fail(
-                    job,
-                    "media_unavailable",
-                    str(exc),
-                    self.retry_delay_seconds,
-                )
-            except Exception as exc:
-                self._logger.exception("v2 publish failed: job_id=%s", job.id)
-                await self._retry_or_fail(
-                    job,
-                    type(exc).__name__,
-                    str(exc),
-                    self.retry_delay_seconds,
-                )
-            else:
-                await self.queue.mark_published(
-                    job.id,
-                    telegram_message_id=result.telegram_message_id,
-                    latency_ms=result.latency_ms,
-                )
-                if self.on_published is not None:
-                    try:
-                        await self.on_published(job.content_item_id)
-                    except Exception:
-                        self._logger.warning(
-                            "post-publish cleanup failed: content_item_id=%s",
-                            job.content_item_id,
-                            exc_info=True,
-                        )
+        semaphore = asyncio.Semaphore(self.concurrency)
+
+        async def process(job: Any) -> None:
+            async with semaphore:
+                await self._process_job(job)
+
+        if jobs:
+            await asyncio.gather(*(process(job) for job in jobs))
         return len(jobs)
+
+    async def _process_job(self, job: Any) -> None:
+        try:
+            result = await self.publisher.publish_job(job.id)
+        except RetryAfter as exc:
+            await self._retry_or_fail(
+                job,
+                "retry_after",
+                str(exc),
+                float(exc.retry_after),
+            )
+        except MediaUnavailableError as exc:
+            await self._retry_or_fail(
+                job,
+                "media_unavailable",
+                str(exc),
+                self.retry_delay_seconds,
+            )
+        except Exception as exc:
+            self._logger.exception("v2 publish failed: job_id=%s", job.id)
+            await self._retry_or_fail(
+                job,
+                type(exc).__name__,
+                str(exc),
+                self.retry_delay_seconds,
+            )
+        else:
+            await self.queue.mark_published(
+                job.id,
+                telegram_message_id=result.telegram_message_id,
+                latency_ms=result.latency_ms,
+            )
+            if self.on_published is not None:
+                try:
+                    await self.on_published(job.content_item_id)
+                except Exception:
+                    self._logger.warning(
+                        "post-publish cleanup failed: content_item_id=%s",
+                        job.content_item_id,
+                        exc_info=True,
+                    )
 
     async def _retry_or_fail(
         self,
