@@ -14,6 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
+    Account,
+    AccountStatus,
     Destination,
     DestinationStatus,
     Project,
@@ -26,6 +28,7 @@ from app.db.models import (
     TelegramAccount,
     TelegramAccountStatus,
 )
+from app.telegram.session import TelegramSessionNotAuthorized
 from app.v3.domain import EventRegistration, RouteExecutionService
 
 from .adapter import TelegramUserAdapter
@@ -89,11 +92,18 @@ class TelegramIngestionComponent:
         if self._running:
             return
         self._stopping.clear()
-        await self.adapter.connect()
+        await self._assert_telegram_account_available()
+        try:
+            await self.adapter.connect()
+        except Exception as exc:
+            await self._record_connect_failure(exc)
+            raise
+        await self._mark_telegram_account_connected()
         try:
             await self._reload_subscriptions(rebaseline=True)
         except Exception:
             await self.adapter.disconnect()
+            await self._mark_telegram_account_disconnected("startup_failed")
             raise
         self._accept_events = True
         self._running = True
@@ -117,6 +127,7 @@ class TelegramIngestionComponent:
         await self._collector.close()
         await self._remove_subscriptions()
         await self.adapter.disconnect()
+        await self._mark_telegram_account_disconnected(None)
         self._sources_by_chat.clear()
         self._running = False
         self._logger.info("V3 Telegram ingestion stopped")
@@ -186,8 +197,8 @@ class TelegramIngestionComponent:
         if rebaseline:
             for source in sources:
                 latest_id = await self.adapter.latest_message_id(source.chat_id)
-                await self._set_live_baseline(source.source_id, latest_id)
-                self._seen_floor[source.source_id] = latest_id
+                effective_floor = await self._set_live_baseline(source.source_id, latest_id)
+                self._seen_floor[source.source_id] = effective_floor
                 self._logger.info(
                     "V3 source live baseline set: source_id=%s message_id=%s",
                     source.source_id,
@@ -279,7 +290,7 @@ class TelegramIngestionComponent:
             len(registration.executions),
         )
 
-    async def _set_live_baseline(self, source_id: uuid.UUID, latest_id: int) -> None:
+    async def _set_live_baseline(self, source_id: uuid.UUID, latest_id: int) -> int:
         if latest_id < 0:
             raise ValueError("latest Telegram message id cannot be negative")
         async with self.session_factory() as session:
@@ -299,6 +310,7 @@ class TelegramIngestionComponent:
                 elif latest_id > checkpoint.last_seen_message_id:
                     checkpoint.last_seen_message_id = latest_id
                 await session.flush()
+                return checkpoint.last_seen_message_id
 
     async def _load_seen_floor(self, source_id: uuid.UUID) -> int:
         async with self.session_factory() as session:
@@ -342,6 +354,7 @@ class TelegramIngestionComponent:
             self._accept_events = False
             await self._collector.flush_all()
             await self._remove_subscriptions()
+            await self._mark_telegram_account_disconnected("connection_lost")
             self._logger.warning("V3 Telegram connection lost; reconnecting")
 
             reconnected = False
@@ -351,10 +364,12 @@ class TelegramIngestionComponent:
                 await asyncio.sleep(delay)
                 try:
                     await self.adapter.connect()
+                    await self._mark_telegram_account_connected()
                     await self._reload_subscriptions(rebaseline=True)
                 except asyncio.CancelledError:
                     raise
-                except Exception:
+                except Exception as exc:
+                    await self._record_connect_failure(exc)
                     self._logger.warning(
                         "V3 Telegram reconnect attempt failed: delay=%s",
                         delay,
@@ -369,3 +384,83 @@ class TelegramIngestionComponent:
             if not reconnected:
                 self._logger.error("V3 Telegram reconnect delays exhausted")
                 await asyncio.sleep(self.reconnect_delays[-1])
+
+
+    async def _assert_telegram_account_available(self) -> None:
+        async with self.session_factory() as session:
+            row = (
+                await session.execute(
+                    select(Account, TelegramAccount)
+                    .join(TelegramAccount, TelegramAccount.account_id == Account.id)
+                    .where(
+                        Account.id == self.account_id,
+                        TelegramAccount.id == self.telegram_account_id,
+                    )
+                )
+            ).first()
+            if row is None:
+                raise RuntimeError("V3 Telegram account is not available in this account")
+            account, telegram_account = row
+            if account.status is not AccountStatus.ACTIVE:
+                raise RuntimeError("V3 account is not active")
+            if telegram_account.status is TelegramAccountStatus.DISABLED:
+                raise RuntimeError("V3 Telegram account is disabled")
+
+    async def _mark_telegram_account_connected(self) -> None:
+        from datetime import UTC, datetime
+
+        async with self.session_factory() as session:
+            async with session.begin():
+                account = await session.scalar(
+                    select(TelegramAccount)
+                    .where(
+                        TelegramAccount.id == self.telegram_account_id,
+                        TelegramAccount.account_id == self.account_id,
+                    )
+                    .with_for_update()
+                )
+                if account is None:
+                    raise RuntimeError("V3 Telegram account is not available in this account")
+                account.status = TelegramAccountStatus.ACTIVE
+                account.last_connected_at = datetime.now(UTC)
+                account.last_error_code = None
+                await session.flush()
+
+    async def _mark_telegram_account_disconnected(self, error_code: str | None) -> None:
+        async with self.session_factory() as session:
+            async with session.begin():
+                account = await session.scalar(
+                    select(TelegramAccount)
+                    .where(
+                        TelegramAccount.id == self.telegram_account_id,
+                        TelegramAccount.account_id == self.account_id,
+                    )
+                    .with_for_update()
+                )
+                if account is None or account.status is TelegramAccountStatus.DISABLED:
+                    return
+                account.status = TelegramAccountStatus.DISCONNECTED
+                account.last_error_code = error_code
+                await session.flush()
+
+    async def _record_connect_failure(self, exc: Exception) -> None:
+        status = (
+            TelegramAccountStatus.REAUTH_REQUIRED
+            if isinstance(exc, TelegramSessionNotAuthorized)
+            else TelegramAccountStatus.DISCONNECTED
+        )
+        async with self.session_factory() as session:
+            async with session.begin():
+                account = await session.scalar(
+                    select(TelegramAccount)
+                    .where(
+                        TelegramAccount.id == self.telegram_account_id,
+                        TelegramAccount.account_id == self.account_id,
+                    )
+                    .with_for_update()
+                )
+                if account is None or account.status is TelegramAccountStatus.DISABLED:
+                    return
+                account.status = status
+                account.last_error_code = type(exc).__name__[:120]
+                await session.flush()
