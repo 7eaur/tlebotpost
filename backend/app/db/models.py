@@ -621,7 +621,9 @@ class PublicationAttempt(Base):
         ForeignKey("publish_jobs.id", ondelete="CASCADE")
     )
     attempt_number: Mapped[int] = mapped_column(Integer)
-    status: Mapped[AttemptStatus]
+    status: Mapped[AttemptStatus] = mapped_column(
+        pg_enum(AttemptStatus, "attempt_status"), default=AttemptStatus.STARTED
+    )
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger)
     error_code: Mapped[str | None] = mapped_column(String(120))
     error_message: Mapped[str | None] = mapped_column(Text)
