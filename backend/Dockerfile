@@ -2,7 +2,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8080
 
 WORKDIR /app
 
@@ -12,9 +13,11 @@ COPY scripts ./scripts
 COPY db ./db
 RUN pip install --no-cache-dir .
 
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data/media && chmod 700 /app/data
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-    CMD python -m app.health
+EXPOSE 8080
 
-CMD ["python", "-m", "app.main"]
+HEALTHCHECK --interval=30s --timeout=10s --start-period=25s --retries=3 \
+    CMD python -m app.health_v2
+
+CMD ["python", "scripts/run_service.py", "--env-file", "/dev/null"]
