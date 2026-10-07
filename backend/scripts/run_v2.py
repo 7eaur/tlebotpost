@@ -67,6 +67,8 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
 def main() -> None:
     args = build_parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     try:
         result = asyncio.run(run(args))
     except KeyboardInterrupt:
