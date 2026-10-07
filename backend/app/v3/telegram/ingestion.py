@@ -96,15 +96,12 @@ class TelegramIngestionComponent:
         await self._assert_telegram_account_available()
         try:
             await self.adapter.connect()
-        except Exception as exc:
-            await self._record_connect_failure(exc)
-            raise
-        await self._mark_telegram_account_connected()
-        try:
+            await self._mark_telegram_account_connected()
             await self._reload_subscriptions(rebaseline=True)
-        except Exception:
-            await self.adapter.disconnect()
-            await self._mark_telegram_account_disconnected("startup_failed")
+        except Exception as exc:
+            if self.adapter.is_connected:
+                await self.adapter.disconnect()
+            await self._record_connect_failure_safely(exc)
             raise
         self._accept_events = True
         self._running = True
@@ -128,7 +125,7 @@ class TelegramIngestionComponent:
         await self._collector.close()
         await self._remove_subscriptions()
         await self.adapter.disconnect()
-        await self._mark_telegram_account_disconnected(None)
+        await self._mark_telegram_account_disconnected_safely(None)
         self._sources_by_chat.clear()
         self._running = False
         self._logger.info("V3 Telegram ingestion stopped")
@@ -353,9 +350,15 @@ class TelegramIngestionComponent:
                 return
 
             self._accept_events = False
-            await self._collector.flush_all()
+            try:
+                await self._collector.flush_all()
+            except Exception:
+                self._logger.warning(
+                    "V3 pending event flush failed during disconnect; keeping pending state",
+                    exc_info=True,
+                )
             await self._remove_subscriptions()
-            await self._mark_telegram_account_disconnected("connection_lost")
+            await self._mark_telegram_account_disconnected_safely("connection_lost")
             self._logger.warning("V3 Telegram connection lost; reconnecting")
 
             reconnected = False
@@ -364,13 +367,16 @@ class TelegramIngestionComponent:
                     return
                 await asyncio.sleep(delay)
                 try:
+                    await self._collector.flush_all()
                     await self.adapter.connect()
                     await self._mark_telegram_account_connected()
                     await self._reload_subscriptions(rebaseline=True)
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
-                    await self._record_connect_failure(exc)
+                    if self.adapter.is_connected:
+                        await self.adapter.disconnect()
+                    await self._record_connect_failure_safely(exc)
                     self._logger.warning(
                         "V3 Telegram reconnect attempt failed: delay=%s",
                         delay,
@@ -462,3 +468,25 @@ class TelegramIngestionComponent:
                 account.status = status
                 account.last_error_code = type(exc).__name__[:120]
                 await session.flush()
+
+
+    async def _mark_telegram_account_disconnected_safely(
+        self,
+        error_code: str | None,
+    ) -> None:
+        try:
+            await self._mark_telegram_account_disconnected(error_code)
+        except Exception:
+            self._logger.warning(
+                "V3 Telegram account disconnect state could not be persisted",
+                exc_info=True,
+            )
+
+    async def _record_connect_failure_safely(self, exc: Exception) -> None:
+        try:
+            await self._record_connect_failure(exc)
+        except Exception:
+            self._logger.warning(
+                "V3 Telegram connection failure state could not be persisted",
+                exc_info=True,
+            )
