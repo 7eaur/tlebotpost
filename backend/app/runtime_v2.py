@@ -348,8 +348,10 @@ class RuntimeV2:
         if result.decision is PipelineDecision.ACCEPTED:
             if result.content_item_id is None:
                 raise RuntimeError("accepted content is missing content_item_id")
+            media_store = getattr(self, "media_store", None)
             try:
-                stored_media = await self.media_store.materialize(result.content_item_id, event)
+                if media_store is not None:
+                    stored_media = await media_store.materialize(result.content_item_id, event)
             except Exception:
                 self._logger.warning(
                     "v2 media persistence failed; publisher fallback will be used",
