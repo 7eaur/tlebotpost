@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phase 0 / Architecture Baseline
+Status: Phases 0-3 complete; Phase 4 next (external V3 Telegram pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-07
