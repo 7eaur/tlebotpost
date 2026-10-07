@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -24,10 +25,10 @@ class RuntimeEnvironment(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class TelegramV3Settings:
+    """Credentials and local session location for Telegram user ingestion."""
+
     api_id: int
     api_hash: str
-    bot_token: str
-    owner_id: int
     session_path: Path
 
     @classmethod
@@ -36,8 +37,6 @@ class TelegramV3Settings:
             values = cls(
                 api_id=int(_required("API_ID")),
                 api_hash=_required("API_HASH"),
-                bot_token=_required("BOT_TOKEN"),
-                owner_id=int(_required("OWNER_ID")),
                 session_path=Path(
                     os.getenv("V3_SESSION_PATH", os.getenv("SESSION_PATH", "data/v3.session"))
                 ),
@@ -45,11 +44,41 @@ class TelegramV3Settings:
         except V3ConfigurationError:
             raise
         except ValueError as exc:
-            raise V3ConfigurationError("API_ID and OWNER_ID must be integers") from exc
+            raise V3ConfigurationError("API_ID must be an integer") from exc
         if values.api_id <= 0:
             raise V3ConfigurationError("API_ID must be positive")
-        if values.owner_id <= 0:
-            raise V3ConfigurationError("OWNER_ID must be positive")
+        return values
+
+
+@dataclass(frozen=True, slots=True)
+class IngestionV3Settings:
+    """Database scope and live-listener behavior for Telegram ingestion."""
+
+    account_id: uuid.UUID
+    telegram_account_id: uuid.UUID
+    album_window_seconds: float = 0.8
+    reconnect_delays: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0)
+
+    @classmethod
+    def from_env(cls) -> IngestionV3Settings:
+        try:
+            values = cls(
+                account_id=uuid.UUID(_required("V3_ACCOUNT_ID")),
+                telegram_account_id=uuid.UUID(_required("V3_TELEGRAM_ACCOUNT_ID")),
+                album_window_seconds=float(os.getenv("V3_ALBUM_WINDOW_SECONDS", "0.8")),
+                reconnect_delays=_float_tuple_env(
+                    "V3_RECONNECT_DELAYS",
+                    (5.0, 15.0, 30.0, 60.0),
+                ),
+            )
+        except V3ConfigurationError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise V3ConfigurationError("invalid V3 ingestion environment value") from exc
+        if values.album_window_seconds <= 0:
+            raise V3ConfigurationError("V3_ALBUM_WINDOW_SECONDS must be positive")
+        if not values.reconnect_delays or any(delay <= 0 for delay in values.reconnect_delays):
+            raise V3ConfigurationError("V3_RECONNECT_DELAYS must contain positive values")
         return values
 
 
@@ -61,6 +90,7 @@ class RuntimeV3Settings:
     environment: RuntimeEnvironment = RuntimeEnvironment.DEVELOPMENT
     log_level: str = "INFO"
     telegram: TelegramV3Settings | None = None
+    ingestion: IngestionV3Settings | None = None
 
     @classmethod
     def from_env(
@@ -90,6 +120,7 @@ class RuntimeV3Settings:
             environment=environment,
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
             telegram=TelegramV3Settings.from_env() if telegram_enabled else None,
+            ingestion=IngestionV3Settings.from_env() if telegram_enabled else None,
         )
         values.validate()
         return values
@@ -99,6 +130,10 @@ class RuntimeV3Settings:
         if self.log_level not in allowed_levels:
             raise V3ConfigurationError(
                 "LOG_LEVEL must be one of CRITICAL, ERROR, WARNING, INFO, DEBUG"
+            )
+        if (self.telegram is None) != (self.ingestion is None):
+            raise V3ConfigurationError(
+                "V3 Telegram and ingestion settings must be enabled together"
             )
 
 
@@ -116,3 +151,13 @@ def _bool_env(name: str, default: bool) -> bool:
     if value in {"0", "false", "no", "off"}:
         return False
     raise V3ConfigurationError(f"{name} must be a boolean")
+
+
+def _float_tuple_env(name: str, default: tuple[float, ...]) -> tuple[float, ...]:
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return tuple(float(part.strip()) for part in raw.split(",") if part.strip())
+    except ValueError as exc:
+        raise V3ConfigurationError(f"{name} must be a comma-separated number list") from exc
