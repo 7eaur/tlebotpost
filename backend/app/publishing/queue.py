@@ -11,11 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.content import PipelineDecision, PipelineResult
 from app.db.models import (
     AttemptStatus,
+    ContentItem,
+    ContentStatus,
     Destination,
     JobStatus,
     PublicationAttempt,
+    PublishedMessage,
     PublishJob,
     ScheduleProfile,
+    SourceRoute,
 )
 
 from .scheduler import next_run_at
@@ -46,13 +50,13 @@ class PublishQueue:
         scheduled_for: datetime | None = None,
         priority: int = 100,
     ) -> PublishJob | None:
-        """Create one idempotent job for an accepted pipeline result."""
         if result.decision is not PipelineDecision.ACCEPTED:
             return None
         if result.content_item_id is None:
             raise QueueError("accepted result must contain content_item_id")
         if priority < 0:
             raise QueueError("priority must be non-negative")
+
         event = result.event
         now = datetime.now(UTC)
         async with self.session_factory() as session:
@@ -65,15 +69,28 @@ class PublishQueue:
                 )
                 if destination is None:
                     raise QueueError("destination is not available in this account")
+                route = await session.scalar(
+                    select(SourceRoute).where(
+                        SourceRoute.id == event.route_id,
+                        SourceRoute.account_id == self.account_id,
+                    )
+                )
+                schedule_id = (
+                    route.schedule_profile_id
+                    if route is not None and route.schedule_profile_id is not None
+                    else destination.schedule_profile_id
+                )
                 schedule = None
-                if destination.schedule_profile_id is not None:
+                if schedule_id is not None:
                     schedule = await session.scalar(
                         select(ScheduleProfile).where(
-                            ScheduleProfile.id == destination.schedule_profile_id,
+                            ScheduleProfile.id == schedule_id,
                             ScheduleProfile.account_id == self.account_id,
                         )
                     )
-                execution_time = scheduled_for or self._scheduled_time(destination, schedule, now)
+                execution_time = scheduled_for or self._scheduled_time(
+                    destination, schedule, now
+                )
                 existing = await session.scalar(
                     select(PublishJob).where(
                         PublishJob.account_id == self.account_id,
@@ -93,6 +110,9 @@ class PublishQueue:
                     priority=priority,
                 )
                 session.add(job)
+                item = await session.get(ContentItem, result.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.QUEUED
                 await session.flush()
                 return job
 
@@ -103,7 +123,6 @@ class PublishQueue:
         now: datetime | None = None,
         lock_timeout_seconds: int = 900,
     ) -> list[PublishJob]:
-        """Claim due jobs with PostgreSQL SKIP LOCKED for multi-worker safety."""
         if limit <= 0:
             raise QueueError("limit must be positive")
         current = now or datetime.now(UTC)
@@ -132,7 +151,11 @@ class PublishQueue:
                         ),
                         PublishJob.scheduled_for <= current,
                     )
-                    .order_by(PublishJob.priority, PublishJob.scheduled_for, PublishJob.created_at)
+                    .order_by(
+                        PublishJob.priority,
+                        PublishJob.scheduled_for,
+                        PublishJob.created_at,
+                    )
                     .limit(limit)
                     .with_for_update(skip_locked=True)
                 )
@@ -142,6 +165,9 @@ class PublishQueue:
                     job.locked_at = current
                     job.locked_by = self.worker_id
                     job.attempt_count += 1
+                    item = await session.get(ContentItem, job.content_item_id)
+                    if item is not None:
+                        item.status = ContentStatus.PROCESSING
                     session.add(
                         PublicationAttempt(
                             publish_job_id=job.id,
@@ -167,8 +193,28 @@ class PublishQueue:
                 job = await self._owned_job(session, job_id)
                 job.status = JobStatus.PUBLISHED
                 job.published_at = current
+                job.next_attempt_at = None
                 job.locked_at = None
                 job.locked_by = None
+                job.last_error_code = None
+                job.last_error_message = None
+
+                item = await session.get(ContentItem, job.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.PUBLISHED
+                existing = await session.scalar(
+                    select(PublishedMessage).where(PublishedMessage.publish_job_id == job.id)
+                )
+                if existing is None:
+                    session.add(
+                        PublishedMessage(
+                            publish_job_id=job.id,
+                            destination_id=job.destination_id,
+                            telegram_message_id=telegram_message_id,
+                            published_at=current,
+                            metadata_json={"worker_id": self.worker_id},
+                        )
+                    )
                 await self._finish_attempt(
                     session,
                     job,
@@ -195,6 +241,9 @@ class PublishQueue:
                 job.last_error_message = error_message[:4000]
                 job.locked_at = None
                 job.locked_by = None
+                item = await session.get(ContentItem, job.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.QUEUED
                 await self._finish_attempt(
                     session,
                     job,
@@ -219,6 +268,9 @@ class PublishQueue:
                 job.last_error_message = error_message[:4000]
                 job.locked_at = None
                 job.locked_by = None
+                item = await session.get(ContentItem, job.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.FAILED
                 await self._finish_attempt(
                     session,
                     job,
@@ -228,7 +280,41 @@ class PublishQueue:
                     finished_at=datetime.now(UTC),
                 )
 
-    async def _owned_job(self, session: AsyncSession, job_id: uuid.UUID) -> PublishJob:
+    async def requeue(self, job_id: uuid.UUID) -> PublishJob:
+        async with self.session_factory() as session:
+            async with session.begin():
+                job = await self._account_job(session, job_id)
+                if job.status == JobStatus.PUBLISHED:
+                    raise QueueError("published jobs cannot be requeued")
+                job.status = JobStatus.QUEUED
+                job.next_attempt_at = None
+                job.locked_at = None
+                job.locked_by = None
+                job.last_error_code = None
+                job.last_error_message = None
+                item = await session.get(ContentItem, job.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.QUEUED
+                await session.flush()
+                return job
+
+    async def cancel(self, job_id: uuid.UUID) -> PublishJob:
+        async with self.session_factory() as session:
+            async with session.begin():
+                job = await self._account_job(session, job_id)
+                if job.status == JobStatus.PUBLISHED:
+                    raise QueueError("published jobs cannot be cancelled")
+                job.status = JobStatus.CANCELLED
+                job.cancelled_at = datetime.now(UTC)
+                job.locked_at = None
+                job.locked_by = None
+                item = await session.get(ContentItem, job.content_item_id)
+                if item is not None:
+                    item.status = ContentStatus.SKIPPED
+                await session.flush()
+                return job
+
+    async def _account_job(self, session: AsyncSession, job_id: uuid.UUID) -> PublishJob:
         job = await session.scalar(
             select(PublishJob).where(
                 PublishJob.id == job_id,
@@ -237,6 +323,10 @@ class PublishQueue:
         )
         if job is None:
             raise QueueError("publish job is not available in this account")
+        return job
+
+    async def _owned_job(self, session: AsyncSession, job_id: uuid.UUID) -> PublishJob:
+        job = await self._account_job(session, job_id)
         if job.locked_by not in {None, self.worker_id}:
             raise QueueError("publish job is locked by another worker")
         return job
