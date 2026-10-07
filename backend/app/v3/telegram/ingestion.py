@@ -121,6 +121,10 @@ class TelegramIngestionComponent:
         self._running = False
         self._logger.info("V3 Telegram ingestion stopped")
 
+    async def flush_pending(self) -> None:
+        """Durably register every pending logical album event."""
+        await self._collector.flush_all()
+
     async def reload(self, *, rebaseline: bool = False) -> None:
         if not self.adapter.is_connected:
             raise RuntimeError("cannot reload V3 Telegram ingestion while disconnected")
