@@ -7,12 +7,13 @@ import os
 from typing import Any
 
 from sqlalchemy import func, select
-from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from app.db.models import (
     Destination,
     JobStatus,
+    Project,
     PublishJob,
     Source,
     SystemEvent,
@@ -26,6 +27,7 @@ class ControlBotV2:
     COMMANDS = (
         ("start", "القائمة الرئيسية"),
         ("status", "حالة النظام"),
+        ("projects", "المشاريع"),
         ("sources", "المصادر"),
         ("destinations", "الأهداف"),
         ("queue", "طابور النشر"),
@@ -59,6 +61,7 @@ class ControlBotV2:
         app = Application.builder().token(self.token).build()
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("status", self.status_command))
+        app.add_handler(CommandHandler("projects", self.projects_command))
         app.add_handler(CommandHandler("sources", self.sources_command))
         app.add_handler(CommandHandler("destinations", self.destinations_command))
         app.add_handler(CommandHandler("queue", self.queue_command))
@@ -122,7 +125,15 @@ class ControlBotV2:
             ],
         ]
         if self.public_base_url:
-            rows.append([InlineKeyboardButton("🌐 لوحة الإدارة", url=self.public_base_url)])
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        "⚡ Mini App",
+                        web_app=WebAppInfo(url=f"{self.public_base_url}/mini"),
+                    ),
+                    InlineKeyboardButton("🌐 لوحة الإدارة", url=self.public_base_url),
+                ]
+            )
         return InlineKeyboardMarkup(rows)
 
     async def _authorized(self, update: Update) -> bool:
@@ -162,6 +173,28 @@ class ControlBotV2:
             f"• الحالة: {'متوقف مؤقتًا' if status['paused'] else 'يعمل'}"
             + (f"\n• آخر خطأ: {status['last_error']}" if status.get("last_error") else "")
         )
+
+    async def projects_command(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        async with self.runtime.database.session_factory() as session:
+            rows = list(
+                (
+                    await session.scalars(
+                        select(Project)
+                        .where(Project.account_id == self.runtime.settings.account_id)
+                        .order_by(Project.created_at)
+                    )
+                ).all()
+            )
+        text = "📁 لا توجد مشاريع." if not rows else "📁 المشاريع:\n" + "\n".join(
+            f"• {row.name} — {row.status.value}" for row in rows[:30]
+        )
+        await update.effective_message.reply_text(text)
 
     async def sources_command(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
