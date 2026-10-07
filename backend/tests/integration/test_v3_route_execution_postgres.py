@@ -12,6 +12,7 @@ from app.db.models import (
     Destination,
     DestinationStatus,
     Project,
+    ProjectStatus,
     RouteExecution,
     RouteExecutionStatus,
     RouteStatus,
@@ -240,6 +241,78 @@ async def test_route_execution_is_account_scoped():
             assert count == 1
     finally:
         for account_id in account_ids:
+            async with database.transaction() as session:
+                await session.execute(delete(Account).where(Account.id == account_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_paused_project_creates_no_new_route_execution():
+    database_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
+
+    database = Database.from_env()
+    account_id = None
+    try:
+        async with database.transaction() as session:
+            account, source, _routes = await _seed(session, route_count=1)
+            account_id = account.id
+            project = await session.scalar(
+                select(Project).where(Project.account_id == account.id)
+            )
+            assert project is not None
+            project.status = ProjectStatus.PAUSED
+            await session.flush()
+
+            registration = await RouteExecutionService(
+                session, account.id
+            ).register_event(
+                source_id=source.id,
+                cursor_message_id=401,
+                telegram_message_id=401,
+            )
+
+            assert registration.executions == ()
+    finally:
+        if account_id is not None:
+            async with database.transaction() as session:
+                await session.execute(delete(Account).where(Account.id == account_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_final_route_execution_cannot_reenter_queue():
+    database_url = os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")
+    if not database_url:
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
+
+    database = Database.from_env()
+    account_id = None
+    try:
+        async with database.transaction() as session:
+            account, source, _routes = await _seed(session, route_count=1)
+            account_id = account.id
+            service = RouteExecutionService(session, account.id)
+            registration = await service.register_event(
+                source_id=source.id,
+                cursor_message_id=501,
+                telegram_message_id=501,
+            )
+            execution = registration.executions[0]
+            await service.transition(
+                execution.id,
+                RouteExecutionStatus.FILTERED,
+                reason_code="route_filter",
+            )
+
+            with pytest.raises(RouteExecutionError, match="invalid route execution transition"):
+                await service.transition(
+                    execution.id,
+                    RouteExecutionStatus.QUEUED,
+                )
+    finally:
+        if account_id is not None:
             async with database.transaction() as session:
                 await session.execute(delete(Account).where(Account.id == account_id))
         await database.close()
