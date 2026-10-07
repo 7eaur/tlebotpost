@@ -1,9 +1,9 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-3 complete; Phase 4 next (external V3 Telegram pilot deferred until isolated session)
+Status: Phases 0-4 complete; Phase 5 next (external V3 Telegram pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
-Date: 2026-10-07
+Date: 2026-10-08
 
 ## 1. Product intent
 
@@ -168,9 +168,29 @@ Gate: one source event deterministically produces the expected route executions.
 Session lifecycle, live baseline, reconnect, source subscriptions, album collector, typed source events.
 Gate: simulated and real pilot ingestion receives exactly the expected new events.
 
-### Phase 4 — Content processing
+### Phase 4 — Content processing — COMPLETE / VERIFIED
 Normalization, source-rights/URL cleaning, branding, include/exclude/media filters, content type handling and route policy inheritance.
-Gate: contract tests for Arabic text, links, emoji, empty captions, media and albums.
+
+Delivered:
+- route-scoped filter/transform/branding resolution;
+- normalized text separate from rendered branding;
+- Arabic/text-safe normalization;
+- independent Telegram/general URL handling;
+- trailing source-right/credit cleaning;
+- emoji and line-break policies;
+- media/album classification;
+- deterministic filter reason codes;
+- `ready_for_dedup` RouteExecution handoff state;
+- runtime handoff from durable Phase 3 registration;
+- PostgreSQL route-isolation/checkpoint tests.
+
+Gate: PASSED in GitHub Actions Run `37694872101` at code head `621ba5e13f137bee0ac6c8b57674e2129753b31c`.
+
+Boundary:
+- no fingerprint/dedup semantics;
+- no queue/publisher;
+- no media download/staging;
+- no production migration/cutover.
 
 ### Phase 5 — Deduplication
 Implement typed fingerprints, time windows, concurrency protection and complete edge-case tests.
@@ -218,13 +238,19 @@ Unit-test count alone is never production readiness.
 
 ## 13. Immediate execution order
 
+Completed:
 1. freeze current production baseline;
 2. create the V3 branch;
-3. encode behavior contracts in tests;
-4. add the single V3 runtime skeleton;
-5. rebuild deduplication against contracts;
-6. continue phase-by-phase through media/publishing and real Telegram pilot;
-7. leave current production untouched until V3 proves the critical path.
+3. encode runtime/route/live-only behavior contracts;
+4. build the single V3 runtime foundation;
+5. build durable route execution and Telegram ingestion;
+6. build route-specific content processing through `ready_for_dedup`.
+
+Next:
+1. implement Phase 5 typed deduplication against the empty-component regression contract;
+2. continue phase-by-phase through queue reliability, media/publishing and Control Bot V3;
+3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
+4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 
 ## 14. Definition of done
 

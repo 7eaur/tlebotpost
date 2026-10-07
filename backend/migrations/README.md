@@ -8,19 +8,33 @@ Production currently uses the V2 PostgreSQL schema originally bootstrapped by:
 
 `backend/db/schema.sql`
 
-The first V3 revision is:
+V3 migrations are additive to that reference schema and are not run against production during rebuild phases.
 
-`20261007_01_route_executions.py`
+## Revisions
 
-It is intentionally additive and assumes the V2 schema already exists.
+### `20261007_01_route_executions.py`
 
-It adds:
-
+Adds:
 - `route_execution_status`;
 - `route_executions`;
 - `source_checkpoints.last_committed_message_id`.
 
-The committed cursor is backfilled from the current legacy cursor.
+The committed cursor is initially backfilled from the current legacy cursor.
+
+### `20261008_02_content_processing_state.py`
+
+Adds the Phase 4 handoff enum value:
+
+- `ready_for_dedup`.
+
+This state is intentionally not checkpoint-safe and not final.
+
+Downgrade behavior:
+1. maps any `ready_for_dedup` rows back to `processing`;
+2. recreates the previous PostgreSQL enum without the Phase 4 value;
+3. restores the RouteExecution status default.
+
+The full upgrade/downgrade/re-upgrade roundtrip is verified in CI against PostgreSQL 16.
 
 ## Safety rules
 
@@ -49,8 +63,9 @@ The V3 workflow starts PostgreSQL 16, loads the V2 reference schema, runs:
 
 ```bash
 alembic upgrade head
+alembic current
 alembic downgrade base
 alembic upgrade head
 ```
 
-and then executes the V3 PostgreSQL integration suite.
+and then executes the V3 PostgreSQL domain, ingestion, and content-processing integration suite.
