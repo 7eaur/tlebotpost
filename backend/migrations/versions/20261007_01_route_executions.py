@@ -91,19 +91,19 @@ def upgrade() -> None:
         sa.Column(
             "source_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("sources.id", ondelete="CASCADE"),
+            sa.ForeignKey("sources.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column(
             "route_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("source_routes.id", ondelete="CASCADE"),
+            sa.ForeignKey("source_routes.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column(
             "destination_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("destinations.id", ondelete="CASCADE"),
+            sa.ForeignKey("destinations.id", ondelete="RESTRICT"),
             nullable=False,
         ),
         sa.Column("event_key", sa.String(length=96), nullable=False),
