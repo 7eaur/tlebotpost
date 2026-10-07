@@ -18,7 +18,7 @@ External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILA
 - Runtime V2 remains the production reference.
 - The current production Telegram session/volume was deliberately not moved or shared with V3.
 - The known V2 false-deduplication defect remains isolated from the rebuild path.
-- V3 Phase 4 was verified only in CI/disposable PostgreSQL; no production migration was run.
+- V3 Phases 4-5 were verified only in CI/disposable PostgreSQL; no production migration was run.
 
 ## Completed rebuild phases
 
