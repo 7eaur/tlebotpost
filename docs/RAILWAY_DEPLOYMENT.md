@@ -1,6 +1,6 @@
 # Railway Deployment Record
 
-## Current deployment target
+## Current production target
 
 - Repository: `7eaur/tlebotpost`
 - Railway project: `authentic-ambition`
@@ -9,91 +9,108 @@
 - Source branch: `main`
 - Root directory: `/backend`
 - Dockerfile: `/backend/Dockerfile`
-- Start command: `python -m app.main`
+- Runtime: V2
 - Persistent volume: `tlebotpost-data` mounted at `/app/data` (500 MB)
+- PostgreSQL: Railway PostgreSQL service in the same project
+- Public HTTP domain: not required; the relay runs as a long-lived worker
 
-## What was configured
+## Runtime command
 
-The Railway service was connected to the repository and configured to deploy from `main`. Required runtime secrets were added to Railway as environment variables; secret values are intentionally not recorded in Git.
+Production starts V2 with a runtime-time legacy configuration import so the mounted volume is available before the importer runs:
 
-Required runtime variables:
+```sh
+sh -c 'if [ -f /app/data/relay.sqlite3 ]; then python scripts/import_legacy.py --sqlite /app/data/relay.sqlite3 --account-slug runtime-v2 --project-slug runtime-v2; else echo "Legacy SQLite not found on mounted volume"; fi; exec python scripts/run_v2.py --env-file /dev/null'
+```
+
+The Telegram user session is reused from the persistent V1 session path on the volume. Secret values are stored only in Railway variables and are intentionally not documented here.
+
+## Required production variables
+
 - `API_ID`
 - `API_HASH`
 - `BOT_TOKEN`
 - `OWNER_ID`
+- `DATABASE_URL`
+- `V2_ACCOUNT_ID`
+- `V2_SESSION_PATH`
+- `V2_WORKER_ID`
 
-Branding variables:
-- `BRAND_FOOTER`
-- `BRAND_LINK`
+Branding variables may also remain configured for legacy compatibility.
 
-## Code changes made for deployment
+## V2 migration and deployment fixes
 
-1. Removed the unsupported Docker volume declaration from the application Dockerfile.
-2. Added an owner startup notification: `✅ البوت يعمل الآن وجاهز لاستقبال الأوامر.`
-3. Made branding optional at runtime; branding can still be configured through environment variables.
-4. Added a guided Arabic control-bot flow for login, source creation, target configuration, and cancellation.
-5. Added normalization for `https://t.me/...`, `t.me/...`, `https://t.me/c/...`, international phone numbers, Arabic digits, and login codes.
-6. Added user-facing error messages instead of exposing only Python exception names.
-7. Source/target resolution now connects the user session automatically after login, without requiring `/run` first.
+The production rollout exposed and fixed the following issues:
 
-## Deployment history
+1. Packaged `backend/db/schema.sql` in the Docker image.
+2. Reused the already-authorized persistent Telegram session.
+3. Aligned SQLAlchemy PostgreSQL enum values with the lowercase enum values created by `schema.sql`.
+4. Fixed the PostgreSQL enum helper syntax.
+5. Bound legacy import to the configured `V2_ACCOUNT_ID`.
+6. Made repeated legacy imports synchronize existing configuration rather than only create missing rows.
+7. Restored the previously disabled global relay state so the two configured legacy sources and routes are active.
+8. Bound `PublicationAttempt.status` explicitly to PostgreSQL `attempt_status`.
+9. Added a V2 owner startup notification after successful listener/worker startup.
+10. Suppressed `httpx`/`httpcore` INFO request logging so Bot API request URLs are not written to runtime logs.
 
-- Initial Railway deployment attempts on the baseline commit failed.
-- `8bee14aae30bdba2703c4d06330eb1011ba44d3a` recorded the Railway baseline.
-- `efd1b8e78eb62497c8a17d52e0e237e4e912c656` fixed the Docker volume configuration.
-- `67a185c218835fe18a73bf7351686244bca3291f` added the owner startup notification.
-- `d78fc904c64b3a41dec2043fb66e531f263d9b05` made branding optional.
-- The latest Railway deployment is being triggered from `main`.
+Relevant commits:
 
-## Verification status
+```text
+bf46ff4 fix: package v2 postgres schema for deployment
+b59d9a3 fix: persist postgres enum values consistently
+138c5cf fix: correct pg enum helper syntax
+e87866a fix: bind legacy import to configured v2 account
+946a6e1 fix: correct deterministic legacy import script
+ae57431 fix: synchronize legacy config on repeated imports
+9221c71 feat: notify owner when runtime v2 starts
+252ce52 fix: bind publication attempt enum to postgres schema
+ece9fe4 fix: suppress sensitive http client request logs
+```
 
-The latest previously completed Railway deployment was:
-- Deployment: `3f424373-25b0-4f84-9af0-6d2833167b25`
-- Commit: `daf47f53d4e03e2fa5b37b8886aaf529f723e228`
+## Production verification — 2026-10-07
+
+Verified runtime deployment:
+
+- Deployment: `b5a87e15-52f9-4373-a508-b94a96e40f81`
+- Commit: `ece9fe41a1a2a3a35bae384ccfcc503dfade597f`
 - Status: `SUCCESS`
+- Replica state: one running replica, zero crashed replicas
+- Persistent volume mounted successfully
+- PostgreSQL connection succeeded
+- Telegram user session connected successfully
+- Legacy configuration import completed with:
+  - 2 sources
+  - 2 routes
+  - 1 destination
+- Listener baselines were set for both sources.
+- One handler was registered for each source.
+- Runtime log confirmed `v2 Telegram listener started: sources=2`.
+- Runtime log confirmed `Runtime v2 startup notification sent`.
+- Runtime log confirmed `Runtime v2 started`.
+- No `attemptstatus`/publication-attempt enum error remained after the enum fix.
+- No publish-worker cycle error was present in the verified deployment.
+- Bot API request URLs were no longer emitted by HTTP client INFO logging.
 
-A further runtime/storage fix was then committed on `main`:
-- Commit: `36379d35728180f279964ca8b3763014868a04d3`
-- Change: simplify the container runtime user setup so the Railway-mounted `/app/data` volume can be written by the application.
-- A new Railway deployment was triggered: `4407b028-9e04-4b5a-a135-dd3482a288d3`
-- At the time of this record update, that deployment was still `INITIALIZING`.
+## Live-only behavior
 
-Important source-of-truth note:
-- `backend/app/config.py` on `main` still contains the `BRAND_FOOTER or BRAND_LINK` validation. Railway therefore must continue to receive a non-empty `BRAND_FOOTER` (or `BRAND_LINK`). The Railway service has `BRAND_FOOTER` configured.
-- `backend/app/control/bot.py` contains the owner startup-ready notification.
-- `backend/Dockerfile` now creates `/app/data` without switching to the previous non-root runtime user.
-
-### Final verification checklist
-
-Do not mark production fully verified until the current deployment reaches a stable running state and runtime logs confirm:
-
-1. `python -m app.main` starts without configuration or database errors.
-2. Telegram polling starts successfully.
-3. The owner startup-ready notification is attempted successfully.
-4. `/app/data` is writable and persistent across restart.
-5. No restart/crash loop occurs.
-6. Basic owner commands such as `/start` and `/status` respond.
-
-### Recommended first-run sequence
-
-1. Open the control bot and press `تسجيل جلسة الحساب`.
-2. Send the phone number in international format, for example `+967700000000`.
-3. Send the Telegram login code. If two-step verification is enabled, send the code followed by the password.
-4. Press `إضافة مصدر`, then send `@channel` or a full `https://t.me/channel` link.
-5. Press `القناة الهدف`, then send the target channel reference.
-6. Add the control bot as an administrator in the target channel with `Post Messages` permission.
-7. Press `تشغيل`.
-
-The bot starts from the latest message when a source is added. It does not publish historical messages.
-
-### Troubleshooting
-
-- **Phone rejected:** use the full international form with `+` or `00`, without a local leading zero.
-- **Source cannot be resolved:** confirm that the user account is already a member of the private source and that the public link is valid.
-- **Target cannot be resolved:** confirm that the user account can open the channel, then confirm the bot is an administrator with `Post Messages`.
-- **No login flow is pending:** press `تسجيل جلسة الحساب` again; `/cancel` clears an incomplete flow.
-- **System refuses to start:** check that at least one source and one target are configured.
+V2 rebaselines each configured source to the latest Telegram message at startup. Historical messages are not replayed. Only messages received after the current baseline enter the V2 ingestion pipeline.
 
 ## Security
 
-Secrets remain in Railway variables and are not committed to Git. The credentials used for the initial deployment test should be rotated/reissued after verification.
+- Do not commit API credentials, bot tokens, Telegram sessions, or database URLs.
+- Secrets remain in Railway environment variables.
+- Runtime HTTP client request logging is restricted to avoid leaking credential-bearing URLs.
+- Rotate credentials whenever exposure is suspected or as part of normal operational hygiene.
+
+## Operational checks
+
+When diagnosing production, verify in order:
+
+1. Railway deployment is `SUCCESS`.
+2. The volume is mounted at `/app/data`.
+3. Legacy import reports the expected source/route counts.
+4. Telethon connects successfully.
+5. Listener reports `sources=2` (or the currently expected configured count).
+6. Startup notification is sent.
+7. `Runtime v2 started` is present.
+8. No restart loop or `publish worker cycle failed` error appears.
+9. For end-to-end publication verification, use a new post in a configured source; startup intentionally does not replay historical content.
