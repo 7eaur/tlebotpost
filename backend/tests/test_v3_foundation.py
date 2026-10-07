@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 
 from app.db import DatabaseSettings
@@ -64,6 +66,27 @@ def test_v3_settings_require_telegram_as_one_group(monkeypatch):
 
     with pytest.raises(V3ConfigurationError, match="API_ID"):
         RuntimeV3Settings.from_env(env_file=None, require_telegram=True)
+
+
+def test_v3_settings_parse_ingestion_scope(monkeypatch):
+    account_id = uuid.uuid4()
+    telegram_account_id = uuid.uuid4()
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(account_id))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(telegram_account_id))
+    monkeypatch.setenv("V3_ALBUM_WINDOW_SECONDS", "0.4")
+    monkeypatch.setenv("V3_RECONNECT_DELAYS", "1,2,3")
+
+    loaded = RuntimeV3Settings.from_env(env_file=None, require_telegram=True)
+
+    assert loaded.telegram is not None
+    assert loaded.ingestion is not None
+    assert loaded.ingestion.account_id == account_id
+    assert loaded.ingestion.telegram_account_id == telegram_account_id
+    assert loaded.ingestion.album_window_seconds == 0.4
+    assert loaded.ingestion.reconnect_delays == (1.0, 2.0, 3.0)
 
 
 def test_v3_settings_reject_unknown_environment(monkeypatch):
