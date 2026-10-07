@@ -9,6 +9,10 @@ on:
       - "backend/**"
       - ".github/workflows/v3-foundation.yml"
 
+concurrency:
+  group: v3-rebuild-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
