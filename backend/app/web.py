@@ -16,7 +16,10 @@ from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 
+from app.admin_portal import register_admin_routes
 from app.control.resolver import TelegramChatResolver
+from app.miniapp_admin import register_miniapp_routes
+from app.profile_admin import register_profile_routes
 from app.db.models import (
     ContentItem,
     Destination,
@@ -647,6 +650,19 @@ def create_web_app(runtime: Any) -> FastAPI:
             }
             for row in rows
         ]
+
+    register_admin_routes(
+        app,
+        runtime,
+        session_valid=session_valid,
+        require_api_auth=require_api_auth,
+    )
+    register_profile_routes(
+        app,
+        runtime,
+        session_valid=session_valid,
+    )
+    register_miniapp_routes(app, runtime)
 
     @app.get("/api/v1/events", dependencies=[Depends(require_api_auth)])
     async def api_events(limit: int = 100) -> list[dict[str, Any]]:
