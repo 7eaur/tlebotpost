@@ -16,7 +16,7 @@ from telegram import Bot
 from app.content import ContentPipeline, PipelineDecision
 from app.db import Database, SystemEvent
 from app.publishing import BotPublisher, PublishQueue, PublishWorker
-from app.storage import LocalMediaStore
+from app.storage import LocalMediaStore, RetentionCleaner
 from app.telegram.v2_client import TelegramClientConfig, TelegramClientManager
 from app.telegram.v2_listener import IngestionEvent, V2TelegramListener
 
@@ -42,6 +42,7 @@ class RuntimeV2Settings:
     retry_after_retries: int = 3
     max_retry_attempts: int = 8
     reconnect_delay_seconds: float = 5.0
+    cleanup_interval_seconds: float = 300.0
 
     @classmethod
     def from_env(cls, env_file: str | Path | None = ".env") -> RuntimeV2Settings:
@@ -70,6 +71,7 @@ class RuntimeV2Settings:
                 retry_after_retries=int(os.getenv("FLOOD_WAIT_RETRIES", "3")),
                 max_retry_attempts=int(os.getenv("V2_MAX_RETRY_ATTEMPTS", "8")),
                 reconnect_delay_seconds=float(os.getenv("V2_RECONNECT_DELAY_SECONDS", "5")),
+                cleanup_interval_seconds=float(os.getenv("V2_CLEANUP_INTERVAL_SECONDS", "300")),
             )
         except RuntimeConfigurationError:
             raise
@@ -101,6 +103,8 @@ class RuntimeV2Settings:
             raise RuntimeConfigurationError("V2_MAX_RETRY_ATTEMPTS must be positive")
         if self.reconnect_delay_seconds <= 0:
             raise RuntimeConfigurationError("V2_RECONNECT_DELAY_SECONDS must be positive")
+        if self.cleanup_interval_seconds <= 0:
+            raise RuntimeConfigurationError("V2_CLEANUP_INTERVAL_SECONDS must be positive")
 
 
 class RuntimeV2:
@@ -116,6 +120,7 @@ class RuntimeV2:
         media_store: LocalMediaStore,
         queue: PublishQueue,
         worker: PublishWorker,
+        cleaner: RetentionCleaner,
         bot: Any,
         settings: RuntimeV2Settings,
     ) -> None:
@@ -126,10 +131,12 @@ class RuntimeV2:
         self.media_store = media_store
         self.queue = queue
         self.worker = worker
+        self.cleaner = cleaner
         self.bot = bot
         self.settings = settings
         self._worker_task: asyncio.Task[None] | None = None
         self._monitor_task: asyncio.Task[None] | None = None
+        self._cleanup_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._started = False
         self._paused = False
@@ -175,6 +182,10 @@ class RuntimeV2:
             max_attempts=settings.max_retry_attempts,
             on_published=media_store.cleanup_if_ephemeral,
         )
+        cleaner = RetentionCleaner(
+            database.session_factory,
+            settings.account_id,
+        )
         listener = V2TelegramListener(
             client_manager,
             database.session_factory,
@@ -189,6 +200,7 @@ class RuntimeV2:
             media_store=media_store,
             queue=queue,
             worker=worker,
+            cleaner=cleaner,
             bot=bot,
             settings=settings,
         )
@@ -302,6 +314,9 @@ class RuntimeV2:
             "source_count": int(getattr(self.listener, "source_count", 0)),
             "worker_running": worker_running,
             "monitor_running": monitor_running,
+            "cleanup_running": (
+                self._cleanup_task is not None and not self._cleanup_task.done()
+            ),
             "last_error": self._last_error,
         }
 
@@ -418,6 +433,10 @@ class RuntimeV2:
             self._monitor_task = asyncio.create_task(
                 self._connection_monitor(), name="v2-telegram-monitor"
             )
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(
+                self._cleanup_loop(), name="v2-retention-cleaner"
+            )
 
     async def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -433,6 +452,28 @@ class RuntimeV2:
                 raise
             except Exception:
                 self._logger.exception("v2 publish worker cycle failed")
+                await asyncio.sleep(self.settings.poll_interval_seconds)
+
+    async def _cleanup_loop(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                result = await self.cleaner.run_once()
+                if result["media_deleted"] or result["content_expired"]:
+                    self._logger.info(
+                        "v2 retention cleanup: media=%s content=%s",
+                        result["media_deleted"],
+                        result["content_expired"],
+                    )
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self.settings.cleanup_interval_seconds,
+                )
+            except TimeoutError:
+                continue
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._logger.exception("v2 retention cleanup cycle failed")
                 await asyncio.sleep(self.settings.poll_interval_seconds)
 
     async def _connection_monitor(self) -> None:
@@ -465,13 +506,18 @@ class RuntimeV2:
                 )
 
     async def _cancel_background_tasks(self) -> None:
-        tasks = [task for task in (self._worker_task, self._monitor_task) if task is not None]
+        tasks = [
+            task
+            for task in (self._worker_task, self._monitor_task, self._cleanup_task)
+            if task is not None
+        ]
         for task in tasks:
             task.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._worker_task = None
         self._monitor_task = None
+        self._cleanup_task = None
 
     async def _close_resources(self) -> None:
         try:
