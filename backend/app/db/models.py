@@ -68,6 +68,7 @@ class RouteExecutionStatus(StrEnum):
     RECEIVED = "received"
     PROCESSING = "processing"
     READY_FOR_DEDUP = "ready_for_dedup"
+    READY_FOR_QUEUE = "ready_for_queue"
     FILTERED = "filtered"
     DUPLICATE = "duplicate"
     QUEUED = "queued"
@@ -538,6 +539,30 @@ class RouteExecution(Base):
         UniqueConstraint("route_id", "event_key"),
         Index("route_executions_source_cursor_idx", "source_id", "cursor_message_id"),
         Index("route_executions_account_status_idx", "account_id", "status"),
+    )
+
+
+class RouteFingerprint(Base):
+    __tablename__ = "route_fingerprints"
+    id: Mapped[UuidPk]
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
+    route_execution_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("route_executions.id", ondelete="CASCADE")
+    )
+    scope_key: Mapped[str] = mapped_column(String(255))
+    fingerprint_type: Mapped[str] = mapped_column(String(32))
+    fingerprint: Mapped[str] = mapped_column(String(64))
+    observed_at: Mapped[CreatedAt]
+    __table_args__ = (
+        UniqueConstraint("route_execution_id", "fingerprint_type"),
+        Index(
+            "route_fingerprints_lookup_idx",
+            "account_id",
+            "scope_key",
+            "fingerprint_type",
+            "fingerprint",
+            "observed_at",
+        ),
     )
 
 

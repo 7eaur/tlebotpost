@@ -34,7 +34,7 @@ from .normalization import ContentNormalizerV3
 _READY_REASON = "ready_for_dedup"
 _FAILED_REASON = "content_processing_error"
 _ProfileT = TypeVar("_ProfileT", BrandingProfile, FilterProfile, TransformProfile)
-ReadyHandler = Callable[[ProcessingResult], Awaitable[None]]
+ReadyHandler = Callable[[ProcessingResult], Awaitable[Any]]
 
 
 class ContentProcessingError(RuntimeError):
@@ -259,6 +259,7 @@ class ContentProcessingCoordinator:
                     if execution.status in {
                         RouteExecutionStatus.FILTERED,
                         RouteExecutionStatus.DUPLICATE,
+                        RouteExecutionStatus.READY_FOR_QUEUE,
                         RouteExecutionStatus.QUEUED,
                         RouteExecutionStatus.PUBLISHED,
                         RouteExecutionStatus.FAILED,

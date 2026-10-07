@@ -40,6 +40,8 @@ def test_checkpoint_safe_statuses_are_explicit():
     assert RouteExecutionStatus.PROCESSING not in CHECKPOINT_SAFE_STATUSES
     assert RouteExecutionStatus.READY_FOR_DEDUP not in CHECKPOINT_SAFE_STATUSES
     assert RouteExecutionStatus.READY_FOR_DEDUP not in FINAL_EXECUTION_STATUSES
+    assert RouteExecutionStatus.READY_FOR_QUEUE not in CHECKPOINT_SAFE_STATUSES
+    assert RouteExecutionStatus.READY_FOR_QUEUE not in FINAL_EXECUTION_STATUSES
     assert RouteExecutionStatus.QUEUED in CHECKPOINT_SAFE_STATUSES
     assert RouteExecutionStatus.FILTERED in CHECKPOINT_SAFE_STATUSES
     assert RouteExecutionStatus.DUPLICATE in CHECKPOINT_SAFE_STATUSES

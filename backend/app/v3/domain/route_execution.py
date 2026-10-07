@@ -69,7 +69,15 @@ _ALLOWED_TRANSITIONS = {
     ),
     RouteExecutionStatus.READY_FOR_DEDUP: frozenset(
         {
+            RouteExecutionStatus.READY_FOR_QUEUE,
             RouteExecutionStatus.DUPLICATE,
+            RouteExecutionStatus.QUEUED,
+            RouteExecutionStatus.FAILED,
+            RouteExecutionStatus.CANCELLED,
+        }
+    ),
+    RouteExecutionStatus.READY_FOR_QUEUE: frozenset(
+        {
             RouteExecutionStatus.QUEUED,
             RouteExecutionStatus.FAILED,
             RouteExecutionStatus.CANCELLED,
