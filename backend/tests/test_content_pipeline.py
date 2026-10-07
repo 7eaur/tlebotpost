@@ -69,13 +69,35 @@ def test_filter_engine_rejects_disallowed_media():
     assert FilterEngine().apply(content, profile) == "media_type_not_allowed"
 
 
-def test_fingerprints_include_source_message_and_normalized_content():
+def test_text_fingerprints_do_not_create_an_empty_media_fingerprint():
     event = make_event(SimpleNamespace(text="خبر"))
     normalized = ContentNormalizer().normalize(event.message)
     fingerprints = ContentPipeline._fingerprints(event, normalized, DeduplicationProfile())
     kinds = {kind for kind, _value in fingerprints}
-    assert {"telegram_message", "text", "media", "combined"}.issubset(kinds)
-    assert all(len(value) == 64 for _kind, value in fingerprints if _kind != "telegram_message")
+    assert {"telegram_message", "text", "combined"}.issubset(kinds)
+    assert "media" not in kinds
+    assert all(len(value) == 64 for _kind, value in fingerprints)
+
+
+def test_combined_fingerprint_changes_when_media_changes_with_same_caption():
+    event = make_event(
+        SimpleNamespace(
+            text="عاجل",
+            media=SimpleNamespace(media_type="photo", file_unique_id="photo-1"),
+        )
+    )
+    first = ContentNormalizer().normalize(event.message)
+    first_fp = dict(ContentPipeline._fingerprints(event, first, DeduplicationProfile()))
+
+    second_message = SimpleNamespace(
+        text="عاجل",
+        media=SimpleNamespace(media_type="photo", file_unique_id="photo-2"),
+    )
+    second = ContentNormalizer().normalize(second_message)
+    second_fp = dict(ContentPipeline._fingerprints(event, second, DeduplicationProfile()))
+    assert first_fp["text"] == second_fp["text"]
+    assert first_fp["media"] != second_fp["media"]
+    assert first_fp["combined"] != second_fp["combined"]
 
 
 def test_disabled_deduplication_returns_no_fingerprints():
