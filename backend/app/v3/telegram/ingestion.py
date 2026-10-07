@@ -8,6 +8,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -385,7 +386,6 @@ class TelegramIngestionComponent:
                 self._logger.error("V3 Telegram reconnect delays exhausted")
                 await asyncio.sleep(self.reconnect_delays[-1])
 
-
     async def _assert_telegram_account_available(self) -> None:
         async with self.session_factory() as session:
             row = (
@@ -407,8 +407,6 @@ class TelegramIngestionComponent:
                 raise RuntimeError("V3 Telegram account is disabled")
 
     async def _mark_telegram_account_connected(self) -> None:
-        from datetime import UTC, datetime
-
         async with self.session_factory() as session:
             async with session.begin():
                 account = await session.scalar(
