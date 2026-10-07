@@ -23,6 +23,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "integration: requires a live PostgreSQL database, normally provided by Docker Compose",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

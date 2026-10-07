@@ -98,3 +98,10 @@ docker compose up -d
 docker compose logs --tail=100 postgres
 docker compose logs --tail=100 runtime-v2
 ```
+
+لاختبار PostgreSQL ومسار Pipeline وPublish Queue داخل Docker، راجع
+[اختبارات التكامل](v2-integration-tests.md) وشغّل:
+
+```bash
+docker compose --profile integration run --rm runtime-v2-integration
+```
