@@ -469,7 +469,6 @@ class TelegramIngestionComponent:
                 account.last_error_code = type(exc).__name__[:120]
                 await session.flush()
 
-
     async def _mark_telegram_account_disconnected_safely(
         self,
         error_code: str | None,
