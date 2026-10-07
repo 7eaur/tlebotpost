@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
@@ -45,6 +46,7 @@ class AlbumCollectorV3:
         self._tasks: dict[uuid.UUID, asyncio.Task[None]] = {}
         self._locks: defaultdict[uuid.UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._closed = False
+        self._logger = logging.getLogger(__name__)
 
     async def add(self, source: AlbumSource, message: Any) -> None:
         if self._closed:
@@ -115,13 +117,26 @@ class AlbumCollectorV3:
                     await self._flush_locked(source_id, cancel_timer=False)
         except asyncio.CancelledError:
             raise
+        except Exception:
+            self._logger.warning(
+                "V3 album persistence failed; keeping pending album: source_id=%s",
+                source_id,
+                exc_info=True,
+            )
+            if source_id in self._pending and not self._closed:
+                self._tasks[source_id] = asyncio.create_task(
+                    self._flush_later(source_id),
+                    name=f"v3-album-retry-{source_id}",
+                )
 
     async def _flush_locked(self, source_id: uuid.UUID, *, cancel_timer: bool = True) -> None:
-        pending = self._pending.pop(source_id)
-        task = self._tasks.pop(source_id, None)
+        pending = self._pending[source_id]
+        task = self._tasks.get(source_id)
+        await self._emit(pending.source, tuple(pending.messages))
+        self._pending.pop(source_id, None)
+        self._tasks.pop(source_id, None)
         if cancel_timer and task is not None and task is not asyncio.current_task():
             task.cancel()
-        await self._emit(pending.source, tuple(pending.messages))
 
     async def _emit(self, source: AlbumSource, messages: tuple[Any, ...]) -> None:
         await self.on_event(
