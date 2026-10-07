@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import (
     Destination,
     DestinationStatus,
+    Project,
+    ProjectStatus,
     RouteExecution,
     RouteExecutionStatus,
     RouteStatus,
@@ -111,6 +113,7 @@ class RouteExecutionRepository:
             select(SourceRoute, Destination)
             .join(Source, Source.id == SourceRoute.source_id)
             .join(Destination, Destination.id == SourceRoute.destination_id)
+            .join(Project, Project.id == Destination.project_id)
             .where(
                 SourceRoute.account_id == self.account_id,
                 SourceRoute.source_id == source_id,
@@ -119,6 +122,8 @@ class RouteExecutionRepository:
                 Source.status == SourceStatus.ACTIVE,
                 Destination.account_id == self.account_id,
                 Destination.status == DestinationStatus.ACTIVE,
+                Project.account_id == self.account_id,
+                Project.status == ProjectStatus.ACTIVE,
             )
             .order_by(SourceRoute.priority, SourceRoute.created_at, SourceRoute.id)
         )
@@ -298,7 +303,7 @@ class RouteExecutionService:
         if publish_job_id is not None:
             execution.publish_job_id = publish_job_id
         if status in FINAL_EXECUTION_STATUSES:
-            execution.terminal_at = terminal_at or datetime.now().astimezone()
+            execution.terminal_at = terminal_at or datetime.now(UTC)
         await self.session.flush()
         return execution
 
