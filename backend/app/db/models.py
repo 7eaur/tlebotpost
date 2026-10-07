@@ -64,6 +64,17 @@ class RouteStatus(StrEnum):
     ARCHIVED = "archived"
 
 
+class RouteExecutionStatus(StrEnum):
+    RECEIVED = "received"
+    PROCESSING = "processing"
+    FILTERED = "filtered"
+    DUPLICATE = "duplicate"
+    QUEUED = "queued"
+    PUBLISHED = "published"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 class PublishingMode(StrEnum):
     DIRECT = "direct"
     QUEUED = "queued"
@@ -437,6 +448,7 @@ class SourceCheckpoint(Base):
         ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True
     )
     last_seen_message_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    last_committed_message_id: Mapped[int] = mapped_column(BigInteger, default=0)
     last_event_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[UpdatedAt]
 
@@ -490,6 +502,42 @@ class SourceRoute(Base):
     created_at: Mapped[CreatedAt]
     updated_at: Mapped[UpdatedAt]
     __table_args__ = (UniqueConstraint("source_id", "destination_id"),)
+
+
+class RouteExecution(Base):
+    __tablename__ = "route_executions"
+    id: Mapped[UuidPk]
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    route_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("source_routes.id", ondelete="CASCADE")
+    )
+    destination_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("destinations.id", ondelete="CASCADE")
+    )
+    event_key: Mapped[str] = mapped_column(String(96))
+    cursor_message_id: Mapped[int] = mapped_column(BigInteger)
+    telegram_message_id: Mapped[int | None] = mapped_column(BigInteger)
+    telegram_grouped_id: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[RouteExecutionStatus] = mapped_column(
+        pg_enum(RouteExecutionStatus, "route_execution_status"),
+        default=RouteExecutionStatus.RECEIVED,
+    )
+    reason_code: Mapped[str | None] = mapped_column(String(120))
+    content_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("content_items.id", ondelete="SET NULL")
+    )
+    publish_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("publish_jobs.id", ondelete="SET NULL")
+    )
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[CreatedAt]
+    updated_at: Mapped[UpdatedAt]
+    __table_args__ = (
+        UniqueConstraint("route_id", "event_key"),
+        Index("route_executions_source_cursor_idx", "source_id", "cursor_message_id"),
+        Index("route_executions_account_status_idx", "account_id", "status"),
+    )
 
 
 class ContentItem(Base):
