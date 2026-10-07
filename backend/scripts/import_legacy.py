@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import uuid
 from pathlib import Path
 
 from app.db import Database
@@ -22,7 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="read and validate SQLite only; do not connect to or write PostgreSQL",
     )
-    parser.add_argument("--account-name", default="Migrated account")\n    parser.add_argument("--account-id", default=os.getenv("V2_ACCOUNT_ID"))
+    parser.add_argument("--account-name", default="Migrated account")
+    parser.add_argument("--account-id", default=os.getenv("V2_ACCOUNT_ID"))
     parser.add_argument("--account-slug", default="legacy")
     parser.add_argument("--project-name", default="Legacy project")
     parser.add_argument("--project-slug", default="legacy")
@@ -51,7 +54,8 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
         report = await import_legacy_database(
             database,
             args.sqlite,
-            account_name=args.account_name,\n            account_id=uuid.UUID(args.account_id) if args.account_id else None,
+            account_name=args.account_name,
+            account_id=uuid.UUID(args.account_id) if args.account_id else None,
             account_slug=args.account_slug,
             project_name=args.project_name,
             project_slug=args.project_slug,
