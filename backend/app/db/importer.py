@@ -341,6 +341,9 @@ async def _get_or_create(
     filters = [getattr(model, key) == value for key, value in identity.items()]
     instance = await session.scalar(select(model).where(*filters))
     if instance is not None:
+        for key, value in values.items():
+            setattr(instance, key, value)
+        await session.flush()
         return instance
     instance = model(**identity, **values)
     session.add(instance)
