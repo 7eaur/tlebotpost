@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models import (
     BrandingProfile,
+    ClassificationPolicy,
     ContentFingerprint,
     ContentItem,
     ContentMedia,
@@ -30,6 +31,8 @@ from app.db.models import (
     TransformProfile,
 )
 from app.telegram.v2_listener import IngestionEvent
+
+from .classification import ClassificationEngine
 
 
 class PipelineDecision(StrEnum):
@@ -75,6 +78,7 @@ class RouteConfig:
     deduplication: DeduplicationProfile | None
     branding: BrandingProfile | None
     retention: RetentionPolicy | None
+    classification: ClassificationPolicy | None
 
 
 class ContentNormalizer:
@@ -283,11 +287,13 @@ class ContentPipeline:
         *,
         normalizer: ContentNormalizer | None = None,
         filters: FilterEngine | None = None,
+        classifier: ClassificationEngine | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.account_id = account_id
         self.normalizer = normalizer or ContentNormalizer()
         self.filters = filters or FilterEngine()
+        self.classifier = classifier or ClassificationEngine()
 
     async def process(self, event: IngestionEvent) -> PipelineResult:
         async with self.session_factory() as session:
@@ -345,6 +351,18 @@ class ContentPipeline:
                         )
                         session.add(item)
                         await session.flush()
+                        category_matches = await self.classifier.classify(
+                            session,
+                            account_id=self.account_id,
+                            policy=config.classification,
+                            text=content.normalized_text,
+                            source_id=event.source_id,
+                        )
+                        await self.classifier.persist(
+                            session,
+                            content_item_id=item.id,
+                            matches=category_matches,
+                        )
                         for fingerprint_type, value in fingerprints:
                             session.add(
                                 ContentFingerprint(
@@ -433,6 +451,10 @@ class ContentPipeline:
             retention=await profile(
                 RetentionPolicy,
                 route.retention_policy_id or destination.retention_policy_id,
+            ),
+            classification=await profile(
+                ClassificationPolicy,
+                route.classification_policy_id,
             ),
         )
 
