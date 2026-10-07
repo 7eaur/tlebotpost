@@ -407,12 +407,16 @@ class RuntimeV2:
         error_code: str | None = None,
         details: dict[str, object] | None = None,
     ) -> None:
+        database = getattr(self, "database", None)
+        settings = getattr(self, "settings", None)
+        if database is None or settings is None:
+            return
         try:
-            async with self.database.session_factory() as session:
+            async with database.session_factory() as session:
                 async with session.begin():
                     session.add(
                         SystemEvent(
-                            account_id=self.settings.account_id,
+                            account_id=settings.account_id,
                             event_type=event_type,
                             severity=severity,
                             entity_type=entity_type,
@@ -422,7 +426,10 @@ class RuntimeV2:
                         )
                     )
         except Exception:
-            self._logger.debug("failed to persist system event", exc_info=True)
+            logger = getattr(self, "_logger", None)
+            debug = getattr(logger, "debug", None)
+            if debug is not None:
+                debug("failed to persist system event", exc_info=True)
 
     def _ensure_background_tasks(self, *, start_monitor: bool) -> None:
         if self._worker_task is None or self._worker_task.done():
