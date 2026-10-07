@@ -1,4 +1,4 @@
-"""Integrated v2 runtime for Telegram ingestion and publishing."""
+"""Integrated v2 runtime for Telegram ingestion, storage, queueing, and publishing."""
 
 from __future__ import annotations
 
@@ -16,6 +16,7 @@ from telegram import Bot
 from app.content import ContentPipeline, PipelineDecision
 from app.db import Database
 from app.publishing import BotPublisher, PublishQueue, PublishWorker
+from app.storage import LocalMediaStore
 from app.telegram.v2_client import TelegramClientConfig, TelegramClientManager
 from app.telegram.v2_listener import IngestionEvent, V2TelegramListener
 
@@ -26,13 +27,12 @@ class RuntimeConfigurationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class RuntimeV2Settings:
-    """Runtime-only settings; database settings remain owned by Database.from_env()."""
-
     api_id: int
     api_hash: str
     bot_token: str
     account_id: uuid.UUID
     session_path: Path
+    media_root: Path
     owner_id: int | None = None
     worker_id: str = "publisher-v2"
     poll_interval_seconds: float = 1.0
@@ -40,6 +40,8 @@ class RuntimeV2Settings:
     retry_delay_seconds: int = 60
     send_interval_seconds: float = 1.1
     retry_after_retries: int = 3
+    max_retry_attempts: int = 8
+    reconnect_delay_seconds: float = 5.0
 
     @classmethod
     def from_env(cls, env_file: str | Path | None = ".env") -> RuntimeV2Settings:
@@ -54,6 +56,7 @@ class RuntimeV2Settings:
                 session_path=Path(
                     os.getenv("V2_SESSION_PATH", os.getenv("SESSION_PATH", "data/v2.session"))
                 ),
+                media_root=Path(os.getenv("V2_MEDIA_ROOT", "/app/data/media")),
                 owner_id=(
                     int(os.getenv("OWNER_ID", "").strip())
                     if os.getenv("OWNER_ID", "").strip()
@@ -65,6 +68,8 @@ class RuntimeV2Settings:
                 retry_delay_seconds=int(os.getenv("V2_RETRY_DELAY_SECONDS", "60")),
                 send_interval_seconds=float(os.getenv("SEND_INTERVAL_SECONDS", "1.1")),
                 retry_after_retries=int(os.getenv("FLOOD_WAIT_RETRIES", "3")),
+                max_retry_attempts=int(os.getenv("V2_MAX_RETRY_ATTEMPTS", "8")),
+                reconnect_delay_seconds=float(os.getenv("V2_RECONNECT_DELAY_SECONDS", "5")),
             )
         except RuntimeConfigurationError:
             raise
@@ -92,10 +97,14 @@ class RuntimeV2Settings:
             raise RuntimeConfigurationError("SEND_INTERVAL_SECONDS cannot be negative")
         if self.retry_after_retries < 0:
             raise RuntimeConfigurationError("FLOOD_WAIT_RETRIES cannot be negative")
+        if self.max_retry_attempts <= 0:
+            raise RuntimeConfigurationError("V2_MAX_RETRY_ATTEMPTS must be positive")
+        if self.reconnect_delay_seconds <= 0:
+            raise RuntimeConfigurationError("V2_RECONNECT_DELAY_SECONDS must be positive")
 
 
 class RuntimeV2:
-    """Coordinate listener, content pipeline, publish queue, and worker."""
+    """Coordinate listener, content pipeline, media storage, queue, and worker."""
 
     def __init__(
         self,
@@ -104,6 +113,7 @@ class RuntimeV2:
         client_manager: Any,
         listener: Any,
         pipeline: ContentPipeline,
+        media_store: LocalMediaStore,
         queue: PublishQueue,
         worker: PublishWorker,
         bot: Any,
@@ -113,13 +123,17 @@ class RuntimeV2:
         self.client_manager = client_manager
         self.listener = listener
         self.pipeline = pipeline
+        self.media_store = media_store
         self.queue = queue
         self.worker = worker
         self.bot = bot
         self.settings = settings
         self._worker_task: asyncio.Task[None] | None = None
+        self._monitor_task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
         self._started = False
+        self._paused = False
+        self._last_error: str | None = None
         self._logger = logging.getLogger(__name__)
 
     @classmethod
@@ -140,16 +154,26 @@ class RuntimeV2:
             worker_id=settings.worker_id,
         )
         pipeline = ContentPipeline(database.session_factory, settings.account_id)
+        media_store = LocalMediaStore(
+            database.session_factory,
+            client_manager,
+            settings.account_id,
+            root=settings.media_root,
+        )
+        publisher = BotPublisher(
+            bot,
+            database.session_factory,
+            settings.account_id,
+            client_manager=client_manager,
+            retry_after_retries=settings.retry_after_retries,
+            send_interval_seconds=settings.send_interval_seconds,
+        )
         worker = PublishWorker(
             queue,
-            BotPublisher(
-                bot,
-                database.session_factory,
-                settings.account_id,
-                retry_after_retries=settings.retry_after_retries,
-                send_interval_seconds=settings.send_interval_seconds,
-            ),
+            publisher,
             retry_delay_seconds=settings.retry_delay_seconds,
+            max_attempts=settings.max_retry_attempts,
+            on_published=media_store.cleanup_if_ephemeral,
         )
         listener = V2TelegramListener(
             client_manager,
@@ -162,6 +186,7 @@ class RuntimeV2:
             client_manager=client_manager,
             listener=listener,
             pipeline=pipeline,
+            media_store=media_store,
             queue=queue,
             worker=worker,
             bot=bot,
@@ -177,27 +202,116 @@ class RuntimeV2:
 
         return callback
 
-    async def start(self, *, check_database: bool = True, start_worker: bool = True) -> None:
-        """Validate dependencies, start listening, then start the queue worker."""
+    @property
+    def is_started(self) -> bool:
+        return self._started
+
+    @property
+    def is_paused(self) -> bool:
+        return self._paused
+
+    async def start(
+        self,
+        *,
+        check_database: bool = True,
+        start_worker: bool = True,
+        listener_required: bool = True,
+    ) -> None:
+        """Start background publishing and live ingestion.
+
+        When listener_required=False the service stays online in degraded mode
+        if Telegram authorization is missing, allowing the control surfaces to
+        repair the session without a crash loop.
+        """
         if self._started:
             return
         if check_database and not await self.database.ping():
             raise RuntimeError("PostgreSQL v2 health check failed")
-        await self.listener.start()
+
         self._stop_event.clear()
         self._started = True
+        self._paused = False
         if start_worker:
-            self._worker_task = asyncio.create_task(self._worker_loop(), name="v2-publish-worker")
-        await self._send_startup_notification()
-        self._logger.info("Runtime v2 started: account_id=%s", self.settings.account_id)
+            self._ensure_background_tasks(start_monitor=False)
+        try:
+            await self.listener.start()
+        except Exception as exc:
+            self._paused = True
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            self._logger.exception("Runtime v2 listener startup failed")
+            if listener_required:
+                await self._cancel_background_tasks()
+                self._started = False
+                raise
+        else:
+            self._last_error = None
+            await self._send_startup_notification()
+
+        if start_worker:
+            self._ensure_background_tasks(start_monitor=True)
+        self._logger.info(
+            "Runtime v2 started: account_id=%s paused=%s",
+            self.settings.account_id,
+            self._paused,
+        )
+
+    async def pause_ingestion(self) -> None:
+        if not self._started:
+            self._started = True
+            self._stop_event.clear()
+            self._ensure_background_tasks(start_monitor=True)
+        await self.listener.stop()
+        self._paused = True
+        self._logger.info("Runtime v2 ingestion paused")
+
+    async def resume_ingestion(self) -> None:
+        if not self._started:
+            if not await self.database.ping():
+                raise RuntimeError("PostgreSQL v2 health check failed")
+            self._started = True
+            self._stop_event.clear()
+            self._ensure_background_tasks(start_monitor=True)
+        try:
+            await self.listener.start()
+        except Exception as exc:
+            self._paused = True
+            self._last_error = f"{type(exc).__name__}: {exc}"
+            raise
+        self._paused = False
+        self._last_error = None
+        self._logger.info("Runtime v2 ingestion resumed")
+
+    async def reload_ingestion(self) -> None:
+        if self._paused:
+            return
+        await self.listener.reload()
+
+    async def status_snapshot(self) -> dict[str, object]:
+        try:
+            database_ok = await self.database.ping()
+        except Exception:
+            database_ok = False
+        worker_running = self._worker_task is not None and not self._worker_task.done()
+        monitor_running = self._monitor_task is not None and not self._monitor_task.done()
+        return {
+            "started": self._started,
+            "paused": self._paused,
+            "database": database_ok,
+            "telegram_connected": bool(self.client_manager.is_connected),
+            "listener_running": bool(self.listener.is_running),
+            "source_count": int(getattr(self.listener, "source_count", 0)),
+            "worker_running": worker_running,
+            "monitor_running": monitor_running,
+            "last_error": self._last_error,
+        }
 
     async def _send_startup_notification(self) -> None:
-        if self.settings.owner_id is None:
+        if self.settings.owner_id is None or not self.listener.is_running:
             return
         try:
             await self.bot.send_message(
                 chat_id=self.settings.owner_id,
-                text="✅ البوت يعمل الآن وجاهز لاستقبال الأوامر.",
+                text="✅ Runtime V2 يعمل الآن ويستقبل الرسائل الجديدة من المصادر النشطة.",
             )
             self._logger.info("Runtime v2 startup notification sent")
         except Exception:
@@ -208,41 +322,60 @@ class RuntimeV2:
         await self._stop_event.wait()
 
     async def wait(self) -> None:
-        """Wait until stop is requested after the runtime has started."""
         await self._stop_event.wait()
 
     async def stop(self) -> None:
-        """Stop new events first, drain worker task, then close external clients."""
-        if not self._started and self._worker_task is None:
+        if not self._started and self._worker_task is None and self._monitor_task is None:
             await self._close_resources()
             return
         self._stop_event.set()
-        await self.listener.stop()
-        if self._worker_task is not None:
-            self._worker_task.cancel()
-            await asyncio.gather(self._worker_task, return_exceptions=True)
-            self._worker_task = None
+        try:
+            await self.listener.stop()
+        finally:
+            await self._cancel_background_tasks()
         self._started = False
+        self._paused = True
         await self._close_resources()
         self._logger.info("Runtime v2 stopped")
 
     async def run_worker_once(self, *, limit: int | None = None) -> int:
-        """Process one bounded batch; useful for smoke tests and cron execution."""
         return await self.worker.run_once(limit=limit or self.settings.queue_batch_size)
 
     async def handle_ingestion(self, event: IngestionEvent) -> None:
-        """Send one live Telegram event through content processing and enqueue it."""
+        """Process one live Telegram event and enqueue accepted content."""
         result = await self.pipeline.process(event)
+        stored_media = 0
         if result.decision is PipelineDecision.ACCEPTED:
+            if result.content_item_id is None:
+                raise RuntimeError("accepted content is missing content_item_id")
+            try:
+                stored_media = await self.media_store.materialize(result.content_item_id, event)
+            except Exception:
+                self._logger.warning(
+                    "v2 media persistence failed; publisher fallback will be used",
+                    exc_info=True,
+                )
             await self.queue.enqueue_result(result)
         self._logger.info(
-            "v2 ingestion completed: source_id=%s route_id=%s message_id=%s decision=%s reason=%s",
+            "v2 ingestion completed: source_id=%s route_id=%s message_id=%s "
+            "decision=%s reason=%s stored_media=%s",
             event.source_id,
             event.route_id,
             event.message_id,
             result.decision,
             result.reason,
+            stored_media,
         )
+
+    def _ensure_background_tasks(self, *, start_monitor: bool) -> None:
+        if self._worker_task is None or self._worker_task.done():
+            self._worker_task = asyncio.create_task(
+                self._worker_loop(), name="v2-publish-worker"
+            )
+        if start_monitor and (self._monitor_task is None or self._monitor_task.done()):
+            self._monitor_task = asyncio.create_task(
+                self._connection_monitor(), name="v2-telegram-monitor"
+            )
 
     async def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -259,6 +392,44 @@ class RuntimeV2:
             except Exception:
                 self._logger.exception("v2 publish worker cycle failed")
                 await asyncio.sleep(self.settings.poll_interval_seconds)
+
+    async def _connection_monitor(self) -> None:
+        while not self._stop_event.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=self.settings.reconnect_delay_seconds,
+                )
+                continue
+            except TimeoutError:
+                pass
+            if self._paused:
+                continue
+            if self.client_manager.is_connected and self.listener.is_running:
+                continue
+            try:
+                await self.listener.stop()
+                await self.client_manager.disconnect()
+                await self.listener.start()
+                self._last_error = None
+                self._logger.info("v2 Telegram connection recovered")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                self._logger.warning(
+                    "v2 Telegram reconnect failed: %s",
+                    type(exc).__name__,
+                )
+
+    async def _cancel_background_tasks(self) -> None:
+        tasks = [task for task in (self._worker_task, self._monitor_task) if task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._worker_task = None
+        self._monitor_task = None
 
     async def _close_resources(self) -> None:
         try:
