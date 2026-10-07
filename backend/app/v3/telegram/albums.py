@@ -83,10 +83,17 @@ class AlbumCollectorV3:
             pending.messages.append(message)
 
     async def flush_all(self) -> None:
+        current = asyncio.current_task()
+        timer_tasks = [
+            task for task in self._tasks.values()
+            if task is not current
+        ]
         for source_id in tuple(self._pending):
             async with self._locks[source_id]:
                 if source_id in self._pending:
                     await self._flush_locked(source_id)
+        if timer_tasks:
+            await asyncio.gather(*timer_tasks, return_exceptions=True)
 
     async def close(self) -> None:
         if self._closed:
