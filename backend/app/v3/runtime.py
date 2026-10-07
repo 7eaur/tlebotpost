@@ -50,7 +50,31 @@ class RuntimeV3:
 
     @classmethod
     def from_settings(cls, settings: RuntimeV3Settings) -> RuntimeV3:
-        return cls(database=Database(settings.database), settings=settings)
+        database = Database(settings.database)
+        components: list[RuntimeComponent] = []
+        if settings.telegram is not None and settings.ingestion is not None:
+            from app.v3.telegram import TelethonUserAdapter, TelegramIngestionComponent
+
+            adapter = TelethonUserAdapter(
+                api_id=settings.telegram.api_id,
+                api_hash=settings.telegram.api_hash,
+                session_path=settings.telegram.session_path,
+            )
+            components.append(
+                TelegramIngestionComponent(
+                    adapter=adapter,
+                    session_factory=database.session_factory,
+                    account_id=settings.ingestion.account_id,
+                    telegram_account_id=settings.ingestion.telegram_account_id,
+                    album_window_seconds=settings.ingestion.album_window_seconds,
+                    reconnect_delays=settings.ingestion.reconnect_delays,
+                )
+            )
+        return cls(
+            database=database,
+            settings=settings,
+            components=tuple(components),
+        )
 
     async def start(self) -> None:
         if self.state is RuntimeState.READY:
