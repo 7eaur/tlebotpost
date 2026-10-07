@@ -41,6 +41,7 @@ class RuntimeV2Settings:
     send_interval_seconds: float = 1.1
     retry_after_retries: int = 3
     max_retry_attempts: int = 8
+    publish_concurrency: int = 4
     reconnect_delay_seconds: float = 5.0
     cleanup_interval_seconds: float = 300.0
 
@@ -70,6 +71,7 @@ class RuntimeV2Settings:
                 send_interval_seconds=float(os.getenv("SEND_INTERVAL_SECONDS", "1.1")),
                 retry_after_retries=int(os.getenv("FLOOD_WAIT_RETRIES", "3")),
                 max_retry_attempts=int(os.getenv("V2_MAX_RETRY_ATTEMPTS", "8")),
+                publish_concurrency=int(os.getenv("V2_PUBLISH_CONCURRENCY", "4")),
                 reconnect_delay_seconds=float(os.getenv("V2_RECONNECT_DELAY_SECONDS", "5")),
                 cleanup_interval_seconds=float(os.getenv("V2_CLEANUP_INTERVAL_SECONDS", "300")),
             )
@@ -101,6 +103,8 @@ class RuntimeV2Settings:
             raise RuntimeConfigurationError("FLOOD_WAIT_RETRIES cannot be negative")
         if self.max_retry_attempts <= 0:
             raise RuntimeConfigurationError("V2_MAX_RETRY_ATTEMPTS must be positive")
+        if self.publish_concurrency <= 0:
+            raise RuntimeConfigurationError("V2_PUBLISH_CONCURRENCY must be positive")
         if self.reconnect_delay_seconds <= 0:
             raise RuntimeConfigurationError("V2_RECONNECT_DELAY_SECONDS must be positive")
         if self.cleanup_interval_seconds <= 0:
@@ -174,12 +178,14 @@ class RuntimeV2:
             client_manager=client_manager,
             retry_after_retries=settings.retry_after_retries,
             send_interval_seconds=settings.send_interval_seconds,
+            max_concurrent_sends=settings.publish_concurrency,
         )
         worker = PublishWorker(
             queue,
             publisher,
             retry_delay_seconds=settings.retry_delay_seconds,
             max_attempts=settings.max_retry_attempts,
+            concurrency=settings.publish_concurrency,
             on_published=media_store.cleanup_if_ephemeral,
         )
         cleaner = RetentionCleaner(
