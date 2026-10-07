@@ -1,10 +1,11 @@
 [project]
 name = "telegram-channel-relay"
-version = "0.1.0"
+version = "0.2.0"
 description = "Telegram content distribution platform"
 requires-python = ">=3.11"
 dependencies = [
   "aiosqlite>=0.20,<1",
+  "alembic>=1.13,<2",
   "asyncpg>=0.29,<1",
   "cryptography>=42,<44",
   "python-dotenv>=1,<2",
@@ -12,6 +13,9 @@ dependencies = [
   "sqlalchemy[asyncio]>=2.0,<3",
   "telethon>=1.35,<2",
 ]
+
+[project.scripts]
+telegram-relay-v3 = "app.v3.__main__:main"
 
 [project.optional-dependencies]
 dev = [
