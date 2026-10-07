@@ -47,7 +47,7 @@ class WebSettings:
     session_ttl_seconds: int = 43200
 
     @classmethod
-    def from_env(cls) -> "WebSettings":
+    def from_env(cls) -> WebSettings:
         return cls(
             username=os.getenv("WEB_ADMIN_USER", "admin").strip() or "admin",
             password=os.getenv("WEB_ADMIN_PASSWORD", ""),
