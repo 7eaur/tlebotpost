@@ -67,8 +67,11 @@ jobs:
           alembic current
           alembic downgrade base
           alembic upgrade head
-      - name: V3 PostgreSQL route execution integration
-        run: pytest -q tests/integration/test_v3_route_execution_postgres.py
+      - name: V3 PostgreSQL domain and ingestion integration
+        run: >-
+          pytest -q
+          tests/integration/test_v3_route_execution_postgres.py
+          tests/integration/test_v3_telegram_ingestion_postgres.py
       - name: V3 CLI
         run: python -m app.v3 --help
       - name: Docker build
