@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -17,8 +18,8 @@ from app.db.models import (
     JobStatus,
     Project,
     ProjectStatus,
-    PublishJob,
     PublishedMessage,
+    PublishJob,
 )
 from app.profile_admin import load_profiles
 
