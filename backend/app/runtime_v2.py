@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from telegram import Bot
 
 from app.content import ContentPipeline, PipelineDecision
-from app.db import Database
+from app.db import Database, SystemEvent
 from app.publishing import BotPublisher, PublishQueue, PublishWorker
 from app.storage import LocalMediaStore
 from app.telegram.v2_client import TelegramClientConfig, TelegramClientManager
@@ -368,6 +368,46 @@ class RuntimeV2:
             result.reason,
             stored_media,
         )
+        await self._record_event(
+            "ingestion_decision",
+            severity="warning" if result.decision is PipelineDecision.FILTERED else "info",
+            entity_type="source_route",
+            entity_id=event.route_id,
+            details={
+                "source_id": str(event.source_id),
+                "message_id": event.message_id,
+                "decision": result.decision.value,
+                "reason": result.reason,
+                "stored_media": stored_media,
+            },
+        )
+
+    async def _record_event(
+        self,
+        event_type: str,
+        *,
+        severity: str = "info",
+        entity_type: str | None = None,
+        entity_id: uuid.UUID | None = None,
+        error_code: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> None:
+        try:
+            async with self.database.session_factory() as session:
+                async with session.begin():
+                    session.add(
+                        SystemEvent(
+                            account_id=self.settings.account_id,
+                            event_type=event_type,
+                            severity=severity,
+                            entity_type=entity_type,
+                            entity_id=entity_id,
+                            error_code=error_code,
+                            details=details or {},
+                        )
+                    )
+        except Exception:
+            self._logger.debug("failed to persist system event", exc_info=True)
 
     def _ensure_background_tasks(self, *, start_monitor: bool) -> None:
         if self._worker_task is None or self._worker_task.done():
