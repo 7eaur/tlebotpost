@@ -76,7 +76,12 @@ class BotPublisher:
             )
             result_ids = [_message_id(result)]
         elif len(media) > 1 and all(item.media_type in {"photo", "video"} for item in media):
-            result_ids = await self._publish_album(\n                destination.telegram_chat_id, content, media, source\n            )
+            result_ids = await self._publish_album(
+                destination.telegram_chat_id,
+                content,
+                media,
+                source,
+            )
         else:
             result_ids = await self._publish_media_sequential(
                 destination.telegram_chat_id, content, media, source
@@ -153,7 +158,11 @@ class BotPublisher:
             items: list[Any] = []
             for index, (row, payload) in enumerate(zip(media, payloads, strict=True)):
                 media_value = self._input_value(payload, row, stack)
-                caption = (\n                    content.text_normalized\n                    if index == 0 and content.text_normalized\n                    else None\n                )
+                caption = (
+                    content.text_normalized
+                    if index == 0 and content.text_normalized
+                    else None
+                )
                 if row.media_type == "photo":
                     items.append(InputMediaPhoto(media=media_value, caption=caption))
                 else:
