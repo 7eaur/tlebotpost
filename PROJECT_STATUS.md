@@ -6,228 +6,212 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 2 — Core Domain and Route Execution
+Phase 3 — Telegram Ingestion
 
-Status: COMPLETE / VERIFIED
+Status: COMPLETE / VERIFIED IN CI  
+External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE
 
 ## Production state
 
 - Railway production remains on `main`.
-- No V3 rebuild commit has changed production behavior.
-- Runtime V2 remains the live production reference.
-- The known V2 false-duplicate defect remains documented and intentionally isolated from the V3 rebuild.
+- No V3 rebuild commit has changed the live service.
+- Runtime V2 remains the production reference.
+- The current production Telegram session/volume was deliberately not moved or shared with V3.
+- The known V2 false-deduplication defect remains isolated from the rebuild path.
 
-## Phase 1 baseline
+## Completed rebuild phases
+
+### Phase 0 — Audit and contracts
+
+Completed:
+- current-system audit;
+- product behavior reconstruction;
+- target architecture;
+- rebuild master plan;
+- confirmed V2 duplicate-fingerprint defect.
+
+### Phase 1 — Runtime foundation
 
 Completed and verified:
-- canonical V3 runtime entrypoint: `python -m app.v3`;
-- centralized settings;
+- canonical `python -m app.v3` runtime;
+- centralized V3 settings;
 - lifecycle state machine;
 - PostgreSQL readiness;
-- V3 healthcheck;
-- Alembic migration runner;
+- healthcheck;
+- Alembic;
 - Docker/Compose V3 path;
-- CI verification.
+- CI gates.
 
-## Phase 2 delivered
+### Phase 2 — Core domain and route execution
 
-### Domain reuse instead of duplication
+Completed and verified:
+- reuse of Account/Project/TelegramAccount/Source/Destination/SourceRoute;
+- durable `RouteExecution`;
+- route-event idempotency;
+- explicit execution-state machine;
+- `last_committed_message_id`;
+- checkpoint anti-skip rules;
+- additive migration `20261007_01`;
+- PostgreSQL integration.
 
-V3 keeps the useful existing PostgreSQL entities:
+## Phase 3 delivered
 
-- Account
-- Project
-- TelegramAccount
-- Source
-- Destination
-- SourceRoute
-
-It does not create duplicate V3 copies of them.
-
-### New durable RouteExecution model
-
-Added `route_executions` as the durable unit of one source event being processed for one destination route.
-
-Recorded identity includes:
-- account;
-- source;
-- route;
-- destination;
-- stable event key;
-- cursor message id;
-- Telegram message/group identity;
-- processing status;
-- reason code;
-- optional content/publish-job references;
-- terminal timestamp.
-
-Idempotency key:
-
-`(route_id, event_key)`
-
-### Event identity
-
-Single message:
-
-`message:<message_id>`
-
-Album/group:
-
-`group:<grouped_id>`
-
-### Execution states
-
-- received
-- processing
-- filtered
-- duplicate
-- queued
-- published
-- failed
-- cancelled
-
-Checkpoint-safe:
-- filtered
-- duplicate
-- queued
-- published
-- failed
-- cancelled
-
-Blocking:
-- received
-- processing
-
-Final:
-- filtered
-- duplicate
-- published
-- failed
-- cancelled
-
-Queued is intentionally checkpoint-safe but not final because a durable publish job can continue after restart.
-
-### Checkpoint contract
+### Telegram adapter boundary
 
 Added:
+- `TelegramUserAdapter` protocol;
+- `TelethonUserAdapter` production implementation;
+- explicit connect/disconnect;
+- latest-message lookup;
+- source subscriptions;
+- disconnect monitoring.
 
-`source_checkpoints.last_committed_message_id`
+### Typed logical source events
 
-V3 checkpoint advancement now requires:
+Added `SourceEvent` with:
+- account/source identity;
+- chat id;
+- ordered Telegram message ids;
+- grouped id;
+- logical cursor;
+- raw messages;
+- received timestamp.
 
-1. route executions exist for the candidate cursor;
-2. every route execution at that cursor is checkpoint-safe;
-3. no older execution at or below the candidate cursor remains received/processing;
-4. the source belongs to the current account.
+### Album handling
 
-This prevents a newer event from skipping unfinished older work.
+Added `AlbumCollectorV3`:
+- one logical event per Telegram album;
+- message ordering;
+- duplicate album-part suppression;
+- source-order preservation;
+- flush on reload/shutdown;
+- pending album retained until durable persistence succeeds;
+- failed timer persistence keeps state and retries.
 
-### Operational hierarchy
+### Live-only baseline
 
-New route executions require all of the following to be active:
+At startup/reconnect:
+- Telegram latest id becomes the live seen floor;
+- `last_seen_message_id` moves monotonically;
+- `last_committed_message_id` is untouched;
+- history/downtime messages are not replayed;
+- the effective in-memory floor never moves below the DB floor.
 
-- Project
-- Source
-- Destination
-- SourceRoute
+### Durable ingestion handoff
 
-Pausing a project therefore stops new route work below it.
+For a new logical event:
+- V3 registers RouteExecution fan-out first;
+- registration remains idempotent;
+- only after successful transaction does the live seen cursor advance;
+- content processing is not yet invoked.
 
-### Deletion safety
+### Active-source hierarchy
 
-RouteExecution references:
-- Source
-- SourceRoute
-- Destination
+Subscriptions require active:
+- Account;
+- TelegramAccount;
+- Project;
+- Source;
+- Destination;
+- SourceRoute.
 
-with `ON DELETE RESTRICT`.
+Reloading after a project/route pause removes obsolete subscriptions.
 
-Pending execution evidence cannot be silently erased by deleting operational configuration. Normal lifecycle should use pause/archive instead of destructive delete.
+### Telegram account lifecycle
 
-### First V3 migration
+Connection state is synchronized to PostgreSQL:
+- successful session -> active;
+- disconnect -> disconnected;
+- unauthorized session -> reauth_required;
+- disabled Telegram account blocks startup.
 
-Revision:
+Partial startup/reconnect failures clean up the Telegram connection. Failure to persist an operational status does not kill reconnect handling.
 
-`20261007_01`
+### Reconnect lifecycle
 
-Adds:
-- PostgreSQL enum `route_execution_status`;
-- `route_executions`;
-- `source_checkpoints.last_committed_message_id`;
-- committed-cursor backfill from legacy cursor;
-- operational indexes;
-- updated-at trigger.
-
-The migration is additive over the current V2 PostgreSQL schema.
-
-### CI improvements
-
-The V3 workflow now:
-- runs PostgreSQL 16;
-- loads the V2 reference schema;
-- runs Alembic upgrade;
-- runs Alembic downgrade to base;
-- upgrades again;
-- runs real PostgreSQL V3 integration tests;
-- runs Docker build;
-- uses concurrency cancellation so stale rebuild runs do not waste CI capacity.
+Unexpected disconnection:
+1. stops callback acceptance;
+2. tries to persist pending album events;
+3. removes subscriptions;
+4. records disconnect status when DB is available;
+5. reconnects with configured backoff;
+6. cleans partial attempts;
+7. reloads sources;
+8. applies a new live baseline;
+9. resumes listening.
 
 ## Verification evidence
 
-Verified GitHub Actions run:
+Verified code head:
 
-- Run ID: `37687370042`
-- Head: `40637bd582737b92842dbb997072193b7cfeacf2`
+`31522833f28fb61b2dd6f812ba797538b208d073`
+
+GitHub Actions:
+
+- Run ID: `37690825733`
 - Conclusion: `success`
 
-Passed gates:
+Passed:
 
-- V3 focused tests: 15 passed.
-- Full non-integration suite: 88 passed, 6 integration tests deselected.
-- Ruff: passed.
-- compileall: passed.
-- PostgreSQL 16 bootstrap: passed.
-- Alembic upgrade: passed.
-- Alembic downgrade: passed.
-- Alembic re-upgrade: passed.
-- V3 PostgreSQL route-execution integration: 5 passed.
-- V3 CLI: passed.
-- Docker image build: passed.
+- focused V3 foundation/domain tests: 16;
+- full non-integration suite: 94 passed, 8 deselected;
+- Ruff;
+- compileall;
+- PostgreSQL 16 schema bootstrap;
+- Alembic upgrade;
+- Alembic downgrade;
+- Alembic re-upgrade;
+- PostgreSQL V3 domain + ingestion integration: 7 passed;
+- V3 CLI;
+- Docker build.
 
-PostgreSQL integration verifies:
-- source fan-out to multiple routes;
-- idempotent event registration;
-- unfinished route blocking checkpoint;
-- queued route being checkpoint-safe;
-- older unfinished event blocking newer cursor;
-- account isolation;
-- paused project suppressing new execution;
-- final execution cannot return to queue.
+Integration evidence covers:
+- initial live baseline;
+- old-event rejection;
+- new single event registration;
+- album registration;
+- seen vs committed cursor separation;
+- reconnect;
+- downtime history skip;
+- first post-reconnect event;
+- Telegram account status;
+- paused-project subscription removal.
+
+## External Telegram pilot
+
+Not executed for V3 yet.
+
+The live authorized session is stored on the production V2 Railway volume. The available Railway operations do not provide a safe session-file clone into an isolated V3 service. Moving that volume or switching the production service would violate the production-isolation rule.
+
+The external V3 pilot remains a controlled future validation step once an isolated V3 Telegram session exists. This is explicitly documented and is not being presented as completed.
 
 ## Source of truth
 
 - `docs/REBUILD_MASTER_PLAN.md`
 - `docs/v3-phase1-runtime-foundation.md`
 - `docs/v3-phase2-core-domain.md`
+- `docs/v3-phase3-telegram-ingestion.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
-Production `main` remains unchanged until controlled V3 cutover.
-
 ## Next phase
 
-Phase 3 — Telegram Ingestion
+Phase 4 — Content Processing
 
 Planned work:
-- V3 Telegram user-session component;
-- live-only baseline using committed cursor semantics;
-- source subscription/resubscription;
-- reconnect lifecycle;
-- typed source events;
-- album/group collector;
-- handoff from Telegram event -> RouteExecution registration;
-- source-level serialization so events cannot race past checkpoints;
-- integration tests with fake Telegram adapter;
-- pilot-safe real Telegram ingestion validation without production publishing.
+- route-policy resolution;
+- normalized content model;
+- Arabic/text-safe normalization;
+- source-right/credit removal;
+- Telegram/general URL handling;
+- line-break/whitespace policy;
+- emoji preservation policy;
+- media-type classification;
+- include/exclude filters;
+- route/destination branding resolution;
+- deterministic processing result with reason codes;
+- transition RouteExecution from received -> processing -> filtered or ready-for-dedup;
+- unit/property-style contract tests for text, captions, media and albums;
+- PostgreSQL integration for route-profile isolation.
 
-Phase 3 must not yet introduce content transformation, deduplication, or target publishing. Those remain later gates.
+Phase 4 does NOT implement content deduplication or target publishing. Those remain Phase 5+.
