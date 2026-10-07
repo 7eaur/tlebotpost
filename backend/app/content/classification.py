@@ -79,7 +79,12 @@ class ClassificationEngine:
                     )
                 )
             source_ids = {
-                value for value in (_uuid(item) for item in _values(raw_rule.get("source_ids"))) if value
+                value
+                for value in (
+                    _uuid(item)
+                    for item in _values(raw_rule.get("source_ids"))
+                )
+                if value
             }
             if source_ids:
                 checks.append(source_id in source_ids)
