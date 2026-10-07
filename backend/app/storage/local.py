@@ -14,7 +14,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models import ContentMedia, MediaStatus
+from app.db.models import ContentItem, ContentMedia, MediaStatus, RetentionMode
 from app.telegram.v2_listener import IngestionEvent
 
 
@@ -108,8 +108,16 @@ class LocalMediaStore:
                             row.metadata_json = metadata
         return stored
 
+    async def cleanup_if_ephemeral(self, content_item_id: uuid.UUID) -> None:
+        """Delete media only when the content retention policy is live-only."""
+        async with self.session_factory() as session:
+            item = await session.get(ContentItem, content_item_id)
+            if item is None or item.retention_mode is not RetentionMode.NONE:
+                return
+        await self.cleanup_content(content_item_id)
+
     async def cleanup_content(self, content_item_id: uuid.UUID) -> None:
-        """Delete local media after successful live-only publication."""
+        """Delete local media for one content item."""
         async with self.session_factory() as session:
             rows = list(
                 (
