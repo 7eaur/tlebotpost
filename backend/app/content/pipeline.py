@@ -160,7 +160,7 @@ class ContentNormalizer:
             media = getattr(message, "media", None)
             candidates = list(media) if isinstance(media, (list, tuple)) else [media]
         extracted: list[ExtractedMedia] = []
-        for index, item in enumerate(candidate for candidate in candidates if candidate is not None):
+        available = (candidate for candidate in candidates if candidate is not None)\n        for index, item in enumerate(available):
             file_name = cls._media_attr(item, "file_name")
             mime_type = cls._media_attr(item, "mime_type")
             size = cls._media_attr(item, "size")
@@ -299,7 +299,7 @@ class ContentPipeline:
                     preserve_line_breaks=(
                         config.transform.preserve_line_breaks if config.transform else True
                     ),
-                    trim_whitespace=(config.transform.trim_whitespace if config.transform else True),
+                    trim_whitespace=(\n                        config.transform.trim_whitespace if config.transform else True\n                    ),
                 )
                 filter_reason = self.filters.apply(content, config.filters)
                 if filter_reason:
@@ -376,7 +376,7 @@ class ContentPipeline:
                             )
                         await session.flush()
                 except IntegrityError:
-                    return PipelineResult(PipelineDecision.DUPLICATE, "message_already_ingested", event)
+                    return PipelineResult(\n                        PipelineDecision.DUPLICATE, "message_already_ingested", event\n                    )
                 return PipelineResult(PipelineDecision.ACCEPTED, "accepted", event, item.id)
 
     async def _load_route_config(self, session: AsyncSession, event: IngestionEvent) -> RouteConfig:
@@ -436,7 +436,7 @@ class ContentPipeline:
             return False
 
         match_types = {"telegram_message", "combined"}
-        options = profile.options if profile is not None and isinstance(profile.options, dict) else {}
+        options = (\n            profile.options\n            if profile is not None and isinstance(profile.options, dict)\n            else {}\n        )
         if options.get("match_text_only"):
             match_types.add("text")
         if options.get("match_media_only"):
