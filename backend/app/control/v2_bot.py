@@ -76,7 +76,11 @@ class ControlBotV2:
     async def start(self) -> None:
         app = self.application or self.build()
         await app.initialize()
-        commands = [BotCommand(command, description) for command, description in self.COMMANDS]\n        await app.bot.set_my_commands(commands)
+        commands = [
+            BotCommand(command, description)
+            for command, description in self.COMMANDS
+        ]
+        await app.bot.set_my_commands(commands)
         await app.start()
         if app.updater is None:
             raise RuntimeError("Telegram updater is unavailable")
@@ -141,7 +145,10 @@ class ControlBotV2:
     async def status_command(self, update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
             return
-        await update.effective_message.reply_text(\n            await self.status_text(), reply_markup=self.keyboard()\n        )
+        await update.effective_message.reply_text(
+            await self.status_text(),
+            reply_markup=self.keyboard(),
+        )
 
     async def status_text(self) -> str:
         status = await self.runtime.status_snapshot()
@@ -179,7 +186,11 @@ class ControlBotV2:
             lines.append(f"• {source.title} — {source.status.value}")
         return "\n".join(lines)
 
-    async def destinations_command(\n        self, update: Update, _context: ContextTypes.DEFAULT_TYPE\n    ) -> None:
+    async def destinations_command(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
         if not await self._authorized(update):
             return
         async with self.runtime.database.session_factory() as session:
@@ -247,9 +258,15 @@ class ControlBotV2:
         if not await self._authorized(update):
             return
         await self.runtime.pause_ingestion()
-        await update.effective_message.reply_text(\n            "⏸ تم إيقاف الاستقبال. سيبقى Worker واللوحة يعملان."\n        )
+        await update.effective_message.reply_text(
+            "⏸ تم إيقاف الاستقبال. سيبقى Worker واللوحة يعملان."
+        )
 
-    async def errors_command(\n        self, update: Update, _context: ContextTypes.DEFAULT_TYPE\n    ) -> None:
+    async def errors_command(
+        self,
+        update: Update,
+        _context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
         if not await self._authorized(update):
             return
         async with self.runtime.database.session_factory() as session:
@@ -301,9 +318,15 @@ class ControlBotV2:
             return
         self._login_phone = phone
         self._login_code_hash = sent.phone_code_hash
-        await update.effective_message.reply_text(\n            "✅ تم إرسال رمز Telegram. استخدم /login_code 12345"\n        )
+        await update.effective_message.reply_text(
+            "✅ تم إرسال رمز Telegram. استخدم /login_code 12345"
+        )
 
-    async def login_code_command(\n        self, update: Update, context: ContextTypes.DEFAULT_TYPE\n    ) -> None:
+    async def login_code_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
         if not await self._authorized(update):
             return
         if not context.args or not self._login_phone or not self._login_code_hash:
