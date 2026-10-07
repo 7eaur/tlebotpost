@@ -192,4 +192,25 @@ docker compose up -d runtime-v2
 
 ## قرار الإطلاق
 
-النسخة v2 **جاهزة للدمج في `main` وبدء التشغيل التجريبي**. لا تعتبر جاهزة لإنتاج واسع قبل تنفيذ اختبار PostgreSQL داخل Docker وربط Telegram الحقيقي ومراجعة أول دفعة منشورة.
+النسخة v2 **مُدمجة في `main` ومشغلة على Railway** مع PostgreSQL وTelegram الحقيقيين. تم التحقق من الإقلاع، المصدرين، المسارين، الجلسة، وإشعار الجاهزية. يظل إثبات دورة النشر end-to-end مرتبطًا بوصول رسالة جديدة بعد live baseline، لأن النظام لا يعيد نشر الرسائل التاريخية.
+
+
+## تحقق الإنتاج على Railway — 2026-10-07
+
+تم تشغيل Runtime v2 فعليًا على Railway في بيئة `production` وربطه بـ PostgreSQL والجلسة الدائمة لـ Telegram.
+
+نتيجة التحقق التشغيلي:
+
+- تم ترحيل إعدادات V1 إلى نفس `V2_ACCOUNT_ID`.
+- تم تحميل مصدرين ومسارين ووجهة واحدة.
+- تم ضبط live baseline لكل مصدر لمنع إعادة نشر المحتوى التاريخي.
+- تم تسجيل handler مستقل لكل مصدر.
+- ظهر `v2 Telegram listener started: sources=2`.
+- ظهر `Runtime v2 startup notification sent`.
+- ظهر `Runtime v2 started`.
+- تم إصلاح ربط `PublicationAttempt.status` مع PostgreSQL enum `attempt_status`.
+- لم يعد خطأ `attemptstatus` يظهر في النسخة المتحققة.
+- تم منع HTTP client INFO logs من تسجيل Bot API request URLs.
+- Deployment التحقق البرمجي `b5a87e15-52f9-4373-a508-b94a96e40f81` وصل إلى `SUCCESS` على commit `ece9fe41a1a2a3a35bae384ccfcc503dfade597f`.
+
+يبقى اختبار النشر من المصدر إلى الهدف اختبارًا live-event بطبيعته: لا يعيد النظام نشر الرسائل التاريخية، لذلك يجب اعتماد رسالة جديدة بعد baseline عند الحاجة لإثبات دورة النشر end-to-end.
