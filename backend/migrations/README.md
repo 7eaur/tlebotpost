@@ -2,19 +2,55 @@
 
 Alembic is the migration mechanism for the V3 rebuild.
 
-Phase 1 establishes the migration runner only. The current V2 PostgreSQL schema remains the production baseline and is not silently stamped or modified by V3.
+## Current baseline
 
-The first V3 schema revision is created in Phase 2 together with the normalized domain model. Until that revision exists:
+Production currently uses the V2 PostgreSQL schema originally bootstrapped by:
 
-- do not run V3 migrations against production;
-- do not treat backend/db/schema.sql as a V3 migration;
-- do not auto-run legacy import from application startup;
-- use a separate test database for migration development.
+`backend/db/schema.sql`
 
-Commands from backend/:
+The first V3 revision is:
 
-    alembic history
-    alembic current
-    alembic upgrade head
+`20261007_01_route_executions.py`
 
-DATABASE_URL must use postgresql+asyncpg://.
+It is intentionally additive and assumes the V2 schema already exists.
+
+It adds:
+
+- `route_execution_status`;
+- `route_executions`;
+- `source_checkpoints.last_committed_message_id`.
+
+The committed cursor is backfilled from the current legacy cursor.
+
+## Safety rules
+
+- do not auto-run legacy SQLite import from application startup;
+- do not run experimental migrations against production;
+- test upgrade and downgrade on a disposable PostgreSQL database first;
+- production migration happens only during the controlled migration/cutover phases;
+- `backend/db/schema.sql` remains the V2 bootstrap reference, not a V3 migration history.
+
+## Commands
+
+From `backend/`:
+
+```bash
+alembic history
+alembic current
+alembic upgrade head
+alembic downgrade base
+```
+
+`DATABASE_URL` must use the `postgresql+asyncpg://` SQLAlchemy scheme.
+
+## CI verification
+
+The V3 workflow starts PostgreSQL 16, loads the V2 reference schema, runs:
+
+```bash
+alembic upgrade head
+alembic downgrade base
+alembic upgrade head
+```
+
+and then executes the V3 PostgreSQL integration suite.
