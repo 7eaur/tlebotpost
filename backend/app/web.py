@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import func, select
 
 from app.admin_portal import register_admin_routes
+from app.audit import AuditRecorder
 from app.control.resolver import TelegramChatResolver
 from app.miniapp_admin import register_miniapp_routes
 from app.profile_admin import register_profile_routes
@@ -66,6 +67,7 @@ class WebSettings:
 
 def create_web_app(runtime: Any) -> FastAPI:
     settings = WebSettings.from_env()
+    audit = AuditRecorder(runtime.database.session_factory, runtime.settings.account_id)
     app = FastAPI(
         title="Telegram Relay V2",
         version="2.0.0",
@@ -447,6 +449,7 @@ def create_web_app(runtime: Any) -> FastAPI:
         request: Request,
         reference: str = Form(...),
         name: str = Form(""),
+        project_id: str = Form(""),
     ) -> RedirectResponse:
         if not session_valid(request):
             return RedirectResponse("/login", status_code=303)
@@ -454,12 +457,16 @@ def create_web_app(runtime: Any) -> FastAPI:
         resolved = await TelegramChatResolver(client).resolve(reference)
         async with runtime.database.session_factory() as session:
             async with session.begin():
-                project = await session.scalar(
-                    select(Project)
-                    .where(Project.account_id == runtime.settings.account_id)
-                    .order_by(Project.created_at)
-                    .limit(1)
+                project_statement = select(Project).where(
+                    Project.account_id == runtime.settings.account_id
                 )
+                if project_id:
+                    project_statement = project_statement.where(
+                        Project.id == uuid.UUID(project_id)
+                    )
+                else:
+                    project_statement = project_statement.order_by(Project.created_at).limit(1)
+                project = await session.scalar(project_statement)
                 if project is None:
                     raise HTTPException(409, "Project is not configured")
                 destination = await session.scalar(
@@ -481,7 +488,7 @@ def create_web_app(runtime: Any) -> FastAPI:
                         name=(name.strip() or resolved.title),
                         telegram_chat_id=resolved.chat_id,
                         telegram_username=resolved.username,
-                        status=DestinationStatus.ACTIVE,
+                        status=DestinationStatus.PAUSED,
                         publishing_mode=getattr(template, "publishing_mode", None) or PublishingMode.DIRECT,
                         branding_profile_id=getattr(template, "branding_profile_id", None),
                         deduplication_profile_id=getattr(template, "deduplication_profile_id", None),
@@ -494,6 +501,13 @@ def create_web_app(runtime: Any) -> FastAPI:
                     destination.name = name.strip() or resolved.title
                     destination.telegram_username = resolved.username
                     destination.status = DestinationStatus.ACTIVE
+        await audit.record(
+            "destination.upsert",
+            "destination",
+            entity_id=destination.id,
+            actor="web_owner",
+            details={"name": destination.name, "project_id": destination.project_id},
+        )
         await runtime.reload_ingestion()
         return RedirectResponse("/", status_code=303)
 
@@ -750,6 +764,7 @@ button{{width:100%;margin-top:20px;padding:12px;border:0;border-radius:10px;back
 def _dashboard_html(data: dict[str, Any], snapshot: dict[str, Any]) -> str:
     sources: list[Source] = data["sources"]
     destinations: list[Destination] = data["destinations"]
+    projects: list[Project] = data["projects"]
     routes: list[SourceRoute] = data["routes"]
     jobs: list[PublishJob] = data["jobs"]
     events: list[SystemEvent] = data["events"]
@@ -809,6 +824,9 @@ def _dashboard_html(data: dict[str, Any], snapshot: dict[str, Any]) -> str:
     source_options = "".join(
         f'<option value="{row.id}">{html.escape(row.title)}</option>' for row in sources
     )
+    project_options = "".join(
+        f'<option value="{row.id}">{html.escape(row.name)}</option>' for row in projects
+    )
 
     return f"""<!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8">
@@ -829,6 +847,11 @@ button{{background:var(--accent);color:white;border:0;border-radius:8px;padding:
 code{{direction:ltr;display:inline-block}}.top-actions{{display:flex;gap:8px;flex-wrap:wrap}}
 @media(max-width:1000px){{.grid{{grid-template-columns:repeat(2,1fr)}}.forms{{grid-template-columns:1fr}}}}@media(max-width:600px){{.grid{{grid-template-columns:1fr}}}}
 </style></head><body><div class="wrap">
+<nav class="top-actions">
+<a href="/projects">Projects</a><a href="/profiles">Profiles</a>
+<a href="/scheduled">Scheduled</a><a href="/published">Published</a>
+<a href="/telegram">Telegram</a><a href="/audit">Audit</a><a href="/settings">Settings</a>
+</nav>
 <header><div><h1>Telegram Relay V2</h1><p>لوحة التشغيل والإدارة الموحدة</p></div>
 <div class="top-actions">
 <form method="post" action="/actions/runtime/run"><button>▶ تشغيل</button></form>
@@ -846,7 +869,11 @@ code{{direction:ltr;display:inline-block}}.top-actions{{display:flex;gap:8px;fle
 <div class="card"><h2>إضافة وربط</h2><div class="forms">
 <form class="mini" method="post" action="/actions/source/add"><b>مصدر جديد</b><input name="reference" placeholder="@channel أو رابط Telegram" required>
 <select name="destination_id"><option value="">بدون ربط</option>{destination_options}</select><button>إضافة المصدر</button></form>
-<form class="mini" method="post" action="/actions/destination/add"><b>هدف جديد</b><input name="reference" placeholder="@target" required><input name="name" placeholder="اسم اختياري"><button>إضافة الهدف</button></form>
+<form class="mini" method="post" action="/actions/destination/add"><b>هدف جديد</b>
+<input name="reference" placeholder="@target" required>
+<input name="name" placeholder="اسم اختياري">
+<select name="project_id" required>{project_options}</select>
+<button>إضافة الهدف بحالة متوقف</button></form>
 <form class="mini" method="post" action="/actions/route/add"><b>ربط مصدر بهدف</b><select name="source_id" required>{source_options}</select><select name="destination_id" required>{destination_options}</select><button>إنشاء المسار</button></form>
 </div></div>
 <div class="card"><h2>المصادر</h2><table><thead><tr><th>الاسم</th><th>الحالة</th><th>Chat ID</th><th>إجراء</th></tr></thead><tbody>{source_rows}</tbody></table></div>
