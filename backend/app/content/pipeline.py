@@ -347,12 +347,19 @@ class ContentPipeline:
                                     fingerprint=value,
                                 )
                             )
+                        bundle_messages = tuple(getattr(event.message, "messages", ()) or ())
                         for index, media in enumerate(content.media):
                             metadata = dict(media.metadata or {})
+                            member_message_id = event.message_id
+                            if bundle_messages and index < len(bundle_messages):
+                                member_message_id = int(
+                                    getattr(bundle_messages[index], "id", event.message_id)
+                                    or event.message_id
+                                )
                             metadata.update(
                                 {
                                     "telegram_chat_id": event.chat_id,
-                                    "telegram_message_id": event.message_id,
+                                    "telegram_message_id": member_message_id,
                                     "telegram_grouped_id": event.grouped_id,
                                     "media_index": index,
                                 }
