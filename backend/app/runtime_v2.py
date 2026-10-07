@@ -33,6 +33,7 @@ class RuntimeV2Settings:
     bot_token: str
     account_id: uuid.UUID
     session_path: Path
+    owner_id: int | None = None
     worker_id: str = "publisher-v2"
     poll_interval_seconds: float = 1.0
     queue_batch_size: int = 10
@@ -52,6 +53,11 @@ class RuntimeV2Settings:
                 account_id=uuid.UUID(_required("V2_ACCOUNT_ID")),
                 session_path=Path(
                     os.getenv("V2_SESSION_PATH", os.getenv("SESSION_PATH", "data/v2.session"))
+                ),
+                owner_id=(
+                    int(os.getenv("OWNER_ID", "").strip())
+                    if os.getenv("OWNER_ID", "").strip()
+                    else None
                 ),
                 worker_id=os.getenv("V2_WORKER_ID", "publisher-v2").strip() or "publisher-v2",
                 poll_interval_seconds=float(os.getenv("V2_POLL_INTERVAL_SECONDS", "1")),
@@ -74,6 +80,8 @@ class RuntimeV2Settings:
             raise RuntimeConfigurationError("API_HASH is required")
         if not self.bot_token.strip():
             raise RuntimeConfigurationError("BOT_TOKEN is required")
+        if self.owner_id is not None and self.owner_id <= 0:
+            raise RuntimeConfigurationError("OWNER_ID must be positive")
         if self.poll_interval_seconds <= 0:
             raise RuntimeConfigurationError("V2_POLL_INTERVAL_SECONDS must be positive")
         if self.queue_batch_size <= 0:
@@ -180,7 +188,20 @@ class RuntimeV2:
         self._started = True
         if start_worker:
             self._worker_task = asyncio.create_task(self._worker_loop(), name="v2-publish-worker")
+        await self._send_startup_notification()
         self._logger.info("Runtime v2 started: account_id=%s", self.settings.account_id)
+
+    async def _send_startup_notification(self) -> None:
+        if self.settings.owner_id is None:
+            return
+        try:
+            await self.bot.send_message(
+                chat_id=self.settings.owner_id,
+                text="✅ البوت يعمل الآن وجاهز لاستقبال الأوامر.",
+            )
+            self._logger.info("Runtime v2 startup notification sent")
+        except Exception:
+            self._logger.warning("Runtime v2 startup notification failed", exc_info=True)
 
     async def run_forever(self) -> None:
         await self.start()
