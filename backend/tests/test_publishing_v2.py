@@ -33,11 +33,19 @@ def test_daily_window_returns_today_or_next_day():
     )
     assert next_run_at(profile, now) == datetime(2026, 10, 7, 10, 30, tzinfo=UTC)
     later = datetime(2026, 10, 7, 11, 0, tzinfo=UTC)
-    assert next_run_at(profile, later).date().day == 8
+    assert next_run_at(profile, later) == later
+    after = datetime(2026, 10, 7, 13, 0, tzinfo=UTC)
+    assert next_run_at(profile, after).date().day == 8
 
 
-def test_cron_requires_worker_integration():
-    profile = ScheduleProfile(kind=ScheduleKind.CRON, cron_expression="0 * * * *")
+def test_cron_returns_next_matching_time():
+    profile = ScheduleProfile(kind=ScheduleKind.CRON, timezone="UTC", cron_expression="0 * * * *")
+    now = datetime(2026, 10, 7, 12, 10, tzinfo=UTC)
+    assert next_run_at(profile, now) == datetime(2026, 10, 7, 13, 0, tzinfo=UTC)
+
+
+def test_invalid_cron_is_rejected():
+    profile = ScheduleProfile(kind=ScheduleKind.CRON, cron_expression="not-a-cron")
     with pytest.raises(SchedulingError, match="cron"):
         next_run_at(profile, datetime.now(UTC))
 
