@@ -508,12 +508,12 @@ class RouteExecution(Base):
     __tablename__ = "route_executions"
     id: Mapped[UuidPk]
     account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
-    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="RESTRICT"))
     route_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("source_routes.id", ondelete="CASCADE")
+        ForeignKey("source_routes.id", ondelete="RESTRICT")
     )
     destination_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("destinations.id", ondelete="CASCADE")
+        ForeignKey("destinations.id", ondelete="RESTRICT")
     )
     event_key: Mapped[str] = mapped_column(String(96))
     cursor_message_id: Mapped[int] = mapped_column(BigInteger)
