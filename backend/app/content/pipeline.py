@@ -86,6 +86,14 @@ class ContentNormalizer:
 
     _telegram_url = re.compile(r"https?://t\.me/[A-Za-z0-9_+/?.=&%-]+", re.IGNORECASE)
     _separator = re.compile(r"^[\sــ_\-—–=•♦️|]{4,}$")
+    _emoji = re.compile(
+        "["
+        "\U0001F300-\U0001FAFF"
+        "\U00002700-\U000027BF"
+        "\U00002600-\U000026FF"
+        "]+",
+        flags=re.UNICODE,
+    )
 
     def normalize(
         self,
@@ -95,6 +103,7 @@ class ContentNormalizer:
         remove_source_rights: bool = True,
         preserve_line_breaks: bool = True,
         trim_whitespace: bool = True,
+        preserve_emoji: bool = True,
     ) -> NormalizedContent:
         original = self._extract_text(message)
         text = original.replace("\r\n", "\n").replace("\r", "\n")
@@ -107,6 +116,8 @@ class ContentNormalizer:
             text = " ".join(line.strip() for line in lines if line.strip())
         if remove_urls:
             text = self._telegram_url.sub("", text)
+        if not preserve_emoji:
+            text = self._emoji.sub("", text)
         if trim_whitespace:
             text = "\n".join(line.strip() for line in text.split("\n"))
             text = text.strip()
@@ -272,6 +283,22 @@ class FilterEngine:
         allowed_media = set(_string_list(profile.allowed_media_types)) if profile else set()
         if allowed_media and any(item.media_type not in allowed_media for item in content.media):
             return "media_type_not_allowed"
+
+        rules = profile.custom_rules if profile and isinstance(profile.custom_rules, dict) else {}
+        text_length = len(content.normalized_text)
+        min_length = _positive_int(rules.get("min_text_length"))
+        max_length = _positive_int(rules.get("max_text_length"))
+        if min_length is not None and text_length < min_length:
+            return "text_too_short"
+        if max_length is not None and text_length > max_length:
+            return "text_too_long"
+
+        required_hashtags = _string_list(rules.get("required_hashtags"))
+        if required_hashtags:
+            folded = content.normalized_text.casefold()
+            if not any(_normalize_hashtag(tag).casefold() in folded for tag in required_hashtags):
+                return "missing_required_hashtag"
+
         if not content.normalized_text and not content.media:
             return "empty_content"
         return None
@@ -313,6 +340,9 @@ class ContentPipeline:
                         if config.transform
                         else True
                     ),
+                    preserve_emoji=(
+                        config.filters.preserve_emoji if config.filters else True
+                    ),
                 )
                 filter_reason = self.filters.apply(content, config.filters)
                 if filter_reason:
@@ -331,6 +361,7 @@ class ContentPipeline:
                 retention_mode = (
                     config.retention.mode if config.retention is not None else RetentionMode.NONE
                 )
+                content_expires_at, media_expires_at = self._retention_expiry(config.retention)
                 try:
                     async with session.begin_nested():
                         item = ContentItem(
@@ -343,6 +374,7 @@ class ContentPipeline:
                             text_normalized=branded_text,
                             telegram_created_at=event.received_at,
                             retention_mode=retention_mode,
+                            expires_at=content_expires_at,
                             status=ContentStatus.READY,
                             metadata_json={
                                 "route_id": str(event.route_id),
@@ -396,6 +428,7 @@ class ContentPipeline:
                                     original_file_name=media.file_name,
                                     mime_type=media.mime_type,
                                     byte_size=media.byte_size,
+                                    expires_at=media_expires_at,
                                     metadata_json=metadata,
                                 )
                             )
@@ -538,6 +571,25 @@ class ContentPipeline:
         return tuple(result)
 
     @staticmethod
+    def _retention_expiry(
+        policy: RetentionPolicy | None,
+    ) -> tuple[datetime | None, datetime | None]:
+        if policy is None or policy.mode is RetentionMode.NONE:
+            return None, None
+        now = datetime.now(UTC)
+        content_expiry = (
+            now + timedelta(days=policy.content_days)
+            if policy.content_days and policy.content_days > 0
+            else None
+        )
+        media_expiry = (
+            now + timedelta(days=policy.media_days)
+            if policy.media_days and policy.media_days > 0
+            else None
+        )
+        return content_expiry, media_expiry
+
+    @staticmethod
     def _apply_branding(text: str, profile: BrandingProfile | None) -> str:
         if profile is None or profile.enabled is False:
             return text
@@ -559,6 +611,18 @@ def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def _normalize_hashtag(value: str) -> str:
+    return value if value.startswith("#") else f"#{value}"
 
 
 def _sha256(value: str) -> str:
