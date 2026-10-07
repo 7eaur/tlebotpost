@@ -23,6 +23,8 @@ from app.db.models import (
     SourceCheckpoint,
     SourceRoute,
     SourceStatus,
+    TelegramAccount,
+    TelegramAccountStatus,
 )
 from app.v3.domain import EventRegistration, RouteExecutionService
 
@@ -206,10 +208,13 @@ class TelegramIngestionComponent:
                 .join(SourceRoute, SourceRoute.source_id == Source.id)
                 .join(Destination, Destination.id == SourceRoute.destination_id)
                 .join(Project, Project.id == Destination.project_id)
+                .join(TelegramAccount, TelegramAccount.id == Source.telegram_account_id)
                 .where(
                     Source.account_id == self.account_id,
                     Source.telegram_account_id == self.telegram_account_id,
                     Source.status == SourceStatus.ACTIVE,
+                    TelegramAccount.account_id == self.account_id,
+                    TelegramAccount.status == TelegramAccountStatus.ACTIVE,
                     SourceRoute.account_id == self.account_id,
                     SourceRoute.status == RouteStatus.ACTIVE,
                     Destination.account_id == self.account_id,
