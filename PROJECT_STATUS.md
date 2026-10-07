@@ -6,94 +6,228 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 1 — Runtime Foundation
+Phase 2 — Core Domain and Route Execution
 
 Status: COMPLETE / VERIFIED
 
 ## Production state
 
 - Railway production remains on `main`.
-- No production behavior was changed by V3 rebuild work.
+- No V3 rebuild commit has changed production behavior.
 - Runtime V2 remains the live production reference.
-- The confirmed V2 false-duplicate defect remains documented and intentionally unpatched while V3 is rebuilt against explicit contracts.
+- The known V2 false-duplicate defect remains documented and intentionally isolated from the V3 rebuild.
 
-## Phase 0 result
+## Phase 1 baseline
 
-Completed:
-- production/reference freeze;
-- repository and runtime audit;
-- product behavior reconstruction;
-- target architecture;
-- rebuild phases and acceptance gates;
-- confirmed deduplication design defect;
-- master plan in `docs/REBUILD_MASTER_PLAN.md`.
+Completed and verified:
+- canonical V3 runtime entrypoint: `python -m app.v3`;
+- centralized settings;
+- lifecycle state machine;
+- PostgreSQL readiness;
+- V3 healthcheck;
+- Alembic migration runner;
+- Docker/Compose V3 path;
+- CI verification.
 
-## Phase 1 delivered
+## Phase 2 delivered
 
-### Canonical V3 runtime foundation
-- `backend/app/v3/config.py`: centralized process configuration.
-- `backend/app/v3/runtime.py`: lifecycle and readiness state machine.
-- `backend/app/v3/__main__.py`: canonical V3 command: `python -m app.v3`.
-- `backend/app/v3/health.py`: PostgreSQL readiness health check.
+### Domain reuse instead of duplication
 
-### Lifecycle guarantees
-- PostgreSQL must be healthy before V3 becomes ready.
-- components start in declared order.
-- components stop in reverse order.
-- partial startup failure rolls back components already started.
-- runtime exposes explicit stopped/starting/ready/stopping/failed states.
-- Telegram credentials are an optional grouped dependency until the ingestion phase is connected.
+V3 keeps the useful existing PostgreSQL entities:
 
-### Migration foundation
-- Alembic added as the V3 migration mechanism.
-- `backend/alembic.ini`.
-- `backend/migrations/env.py`.
-- `backend/migrations/script.py.mako`.
-- Phase 1 deliberately creates no production schema revision; the first V3 domain revision belongs to Phase 2.
-- automatic legacy import is not part of the V3 runtime foundation.
+- Account
+- Project
+- TelegramAccount
+- Source
+- Destination
+- SourceRoute
 
-### Container/runtime alignment
-On the rebuild branch:
-- Dockerfile default command is V3.
-- Docker healthcheck uses V3 health.
-- optional Compose profile `runtime-v3` uses the same `python -m app.v3` entrypoint.
-- V2 remains explicitly available during controlled migration.
-- production Railway has not been switched.
+It does not create duplicate V3 copies of them.
+
+### New durable RouteExecution model
+
+Added `route_executions` as the durable unit of one source event being processed for one destination route.
+
+Recorded identity includes:
+- account;
+- source;
+- route;
+- destination;
+- stable event key;
+- cursor message id;
+- Telegram message/group identity;
+- processing status;
+- reason code;
+- optional content/publish-job references;
+- terminal timestamp.
+
+Idempotency key:
+
+`(route_id, event_key)`
+
+### Event identity
+
+Single message:
+
+`message:<message_id>`
+
+Album/group:
+
+`group:<grouped_id>`
+
+### Execution states
+
+- received
+- processing
+- filtered
+- duplicate
+- queued
+- published
+- failed
+- cancelled
+
+Checkpoint-safe:
+- filtered
+- duplicate
+- queued
+- published
+- failed
+- cancelled
+
+Blocking:
+- received
+- processing
+
+Final:
+- filtered
+- duplicate
+- published
+- failed
+- cancelled
+
+Queued is intentionally checkpoint-safe but not final because a durable publish job can continue after restart.
+
+### Checkpoint contract
+
+Added:
+
+`source_checkpoints.last_committed_message_id`
+
+V3 checkpoint advancement now requires:
+
+1. route executions exist for the candidate cursor;
+2. every route execution at that cursor is checkpoint-safe;
+3. no older execution at or below the candidate cursor remains received/processing;
+4. the source belongs to the current account.
+
+This prevents a newer event from skipping unfinished older work.
+
+### Operational hierarchy
+
+New route executions require all of the following to be active:
+
+- Project
+- Source
+- Destination
+- SourceRoute
+
+Pausing a project therefore stops new route work below it.
+
+### Deletion safety
+
+RouteExecution references:
+- Source
+- SourceRoute
+- Destination
+
+with `ON DELETE RESTRICT`.
+
+Pending execution evidence cannot be silently erased by deleting operational configuration. Normal lifecycle should use pause/archive instead of destructive delete.
+
+### First V3 migration
+
+Revision:
+
+`20261007_01`
+
+Adds:
+- PostgreSQL enum `route_execution_status`;
+- `route_executions`;
+- `source_checkpoints.last_committed_message_id`;
+- committed-cursor backfill from legacy cursor;
+- operational indexes;
+- updated-at trigger.
+
+The migration is additive over the current V2 PostgreSQL schema.
+
+### CI improvements
+
+The V3 workflow now:
+- runs PostgreSQL 16;
+- loads the V2 reference schema;
+- runs Alembic upgrade;
+- runs Alembic downgrade to base;
+- upgrades again;
+- runs real PostgreSQL V3 integration tests;
+- runs Docker build;
+- uses concurrency cancellation so stale rebuild runs do not waste CI capacity.
 
 ## Verification evidence
 
 Verified GitHub Actions run:
 
-- Run ID: `37686224476`
-- Head: `98fb09c8091317fd0d1c56c09d0a402ce032e9fc`
+- Run ID: `37687370042`
+- Head: `40637bd582737b92842dbb997072193b7cfeacf2`
 - Conclusion: `success`
 
 Passed gates:
-- V3 foundation tests: 6 passed.
-- Full non-integration suite: 79 passed, 1 integration test deselected.
+
+- V3 focused tests: 15 passed.
+- Full non-integration suite: 88 passed, 6 integration tests deselected.
 - Ruff: passed.
 - compileall: passed.
-- Alembic runner/history: passed.
-- V3 CLI import/help: passed.
+- PostgreSQL 16 bootstrap: passed.
+- Alembic upgrade: passed.
+- Alembic downgrade: passed.
+- Alembic re-upgrade: passed.
+- V3 PostgreSQL route-execution integration: 5 passed.
+- V3 CLI: passed.
 - Docker image build: passed.
+
+PostgreSQL integration verifies:
+- source fan-out to multiple routes;
+- idempotent event registration;
+- unfinished route blocking checkpoint;
+- queued route being checkpoint-safe;
+- older unfinished event blocking newer cursor;
+- account isolation;
+- paused project suppressing new execution;
+- final execution cannot return to queue.
 
 ## Source of truth
 
 - `docs/REBUILD_MASTER_PLAN.md`
 - `docs/v3-phase1-runtime-foundation.md`
+- `docs/v3-phase2-core-domain.md`
+- `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
-- `main` remains the production baseline until controlled V3 cutover.
+
+Production `main` remains unchanged until controlled V3 cutover.
 
 ## Next phase
 
-Phase 2 — Core Domain and Route Execution
+Phase 3 — Telegram Ingestion
 
 Planned work:
-- normalize V3 domain boundaries for Account, Project, TelegramAccount, Source, Destination and SourceRoute;
-- define route execution as the durable unit of source-to-destination processing;
-- define source checkpoint advancement around durable route outcomes;
-- create the first V3 Alembic schema revision;
-- add domain/service validation and account isolation;
-- add PostgreSQL integration tests for the new schema and route-execution contracts.
+- V3 Telegram user-session component;
+- live-only baseline using committed cursor semantics;
+- source subscription/resubscription;
+- reconnect lifecycle;
+- typed source events;
+- album/group collector;
+- handoff from Telegram event -> RouteExecution registration;
+- source-level serialization so events cannot race past checkpoints;
+- integration tests with fake Telegram adapter;
+- pilot-safe real Telegram ingestion validation without production publishing.
 
-Phase 2 must not connect production Telegram publishing yet. Production remains unchanged until later pilot/cutover gates.
+Phase 3 must not yet introduce content transformation, deduplication, or target publishing. Those remain later gates.
