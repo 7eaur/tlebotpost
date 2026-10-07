@@ -85,3 +85,33 @@ async def test_album_collector_flushes_pending_on_close():
 
     assert len(received) == 1
     assert received[0].message_ids == (21, 22)
+
+
+@pytest.mark.asyncio
+async def test_album_collector_keeps_pending_album_when_persistence_fails():
+    source = AlbumSource(
+        account_id=uuid.uuid4(),
+        source_id=uuid.uuid4(),
+        chat_id=-1001,
+    )
+    received: list[SourceEvent] = []
+    should_fail = True
+
+    async def on_event(event: SourceEvent) -> None:
+        nonlocal should_fail
+        if should_fail:
+            raise RuntimeError("database unavailable")
+        received.append(event)
+
+    collector = AlbumCollectorV3(on_event, window_seconds=60)
+    await collector.add(source, message(31, grouped_id=99))
+    await collector.add(source, message(32, grouped_id=99))
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await collector.flush_all()
+
+    should_fail = False
+    await collector.flush_all()
+    assert len(received) == 1
+    assert received[0].message_ids == (31, 32)
+    await collector.close()
