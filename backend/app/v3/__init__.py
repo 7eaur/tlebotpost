@@ -6,6 +6,7 @@ rebuild is developed and verified.
 
 from .config import (
     IngestionV3Settings,
+    PublisherV3Settings,
     RuntimeEnvironment,
     RuntimeV3Settings,
     TelegramV3Settings,
@@ -15,6 +16,7 @@ from .runtime import RuntimeState, RuntimeV3
 
 __all__ = [
     "IngestionV3Settings",
+    "PublisherV3Settings",
     "RuntimeEnvironment",
     "RuntimeState",
     "RuntimeV3",
