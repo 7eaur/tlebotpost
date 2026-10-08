@@ -89,6 +89,45 @@ def test_v3_settings_parse_ingestion_scope(monkeypatch):
     assert loaded.ingestion.reconnect_delays == (1.0, 2.0, 3.0)
 
 
+def test_v3_publisher_settings_are_opt_in_and_enable_telegram_group(monkeypatch, tmp_path):
+    account_id = uuid.uuid4()
+    telegram_account_id = uuid.uuid4()
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("BOT_TOKEN", "test-token")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(account_id))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(telegram_account_id))
+    monkeypatch.setenv("V3_PUBLISHER_ENABLED", "true")
+    monkeypatch.setenv("V3_PUBLISHER_WORKER_ID", "publisher-test")
+    monkeypatch.setenv("V3_PUBLISHER_BATCH_SIZE", "4")
+    monkeypatch.setenv("V3_PUBLISHER_LEASE_SECONDS", "45")
+    monkeypatch.setenv("V3_MEDIA_STAGING_PATH", str(tmp_path / "stage"))
+
+    loaded = RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+    assert loaded.telegram is not None
+    assert loaded.ingestion is not None
+    assert loaded.publisher is not None
+    assert loaded.publisher.worker_id == "publisher-test"
+    assert loaded.publisher.queue_batch_size == 4
+    assert loaded.publisher.lease_seconds == 45
+    assert loaded.publisher.staging_path == tmp_path / "stage"
+
+
+def test_v3_publisher_requires_bot_token(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_PUBLISHER_ENABLED", "true")
+    monkeypatch.delenv("BOT_TOKEN", raising=False)
+
+    with pytest.raises(V3ConfigurationError, match="BOT_TOKEN"):
+        RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+
 def test_v3_settings_reject_unknown_environment(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
     monkeypatch.setenv("APP_ENV", "mystery")
