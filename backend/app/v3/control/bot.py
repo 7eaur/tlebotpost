@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 from telegram import BotCommand, Update
 from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes
