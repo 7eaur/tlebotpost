@@ -450,6 +450,18 @@ class PublishQueueV3:
         async with self.session_factory() as session:
             async with session.begin():
                 job = await self._owned_claim(session, job_id, worker)
+                if job.status is JobStatus.PUBLISHING:
+                    await self._fail_locked_job(
+                        session,
+                        job,
+                        error_code="publish_outcome_unknown",
+                        error_message=(
+                            "retry was requested after external publishing began; "
+                            "automatic retry is disabled to avoid duplicate target posts"
+                        ),
+                        current=current,
+                    )
+                    return JobStatus.FAILED
                 if job.attempt_count >= job.max_attempts:
                     await self._fail_locked_job(
                         session,
