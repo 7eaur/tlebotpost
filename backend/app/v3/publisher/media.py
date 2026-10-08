@@ -5,8 +5,8 @@ from __future__ import annotations
 import shutil
 import time
 import uuid
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from telethon.errors import FloodWaitError
 
