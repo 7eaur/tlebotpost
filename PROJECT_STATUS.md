@@ -6,7 +6,7 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 5 — Deduplication
+Phase 6 — Publish Queue and Reliability
 
 Status: COMPLETE / VERIFIED IN CI  
 External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE
@@ -18,7 +18,7 @@ External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILA
 - Runtime V2 remains the production reference.
 - The current production Telegram session/volume was deliberately not moved or shared with V3.
 - The known V2 false-deduplication defect remains isolated from the rebuild path.
-- V3 Phases 4-5 were verified only in CI/disposable PostgreSQL; no production migration was run.
+- V3 Phases 4-6 were verified only in CI/disposable PostgreSQL; no production migration was run.
 
 ## Completed rebuild phases
 
@@ -376,6 +376,181 @@ Phase 5 does not:
 
 Processed publish payload durability/recovery must be completed as part of the Phase 6 queue handoff before V3 is eligible for production cutover.
 
+## Phase 6 delivered
+
+### Durable source-event snapshot
+
+The ingestion registration transaction now also persists `source_event_snapshots`.
+
+The snapshot contains only the processing inputs needed for deterministic recovery:
+- source/event identity;
+- ordered Telegram message ids;
+- grouped id;
+- chat id;
+- raw text/caption;
+- media type/identity metadata;
+- received timestamp.
+
+This closes the crash window where `last_seen_message_id` had advanced after durable RouteExecution registration but content processing had not completed.
+
+Recovery does not replay Telegram history. It resumes from the durable snapshot already accepted by V3.
+
+### Durable route publish payload
+
+Added `route_publish_payloads`, one payload per RouteExecution.
+
+It persists:
+- normalized text;
+- rendered/branding text;
+- content type;
+- ordered media descriptors.
+
+The payload is written in the same database transaction that moves the execution to `ready_for_dedup`.
+
+This makes Phase 4 -> Phase 5 -> Phase 6 recoverable after restart without keeping transformed content only in process memory.
+
+### V3 queue handoff
+
+The existing `publish_jobs` table is extended rather than duplicated.
+
+V3 jobs add:
+- `route_execution_id`;
+- `route_payload_id`;
+- `max_attempts`;
+- `lease_expires_at`.
+
+`content_item_id` is nullable so V3 route-specific payloads do not have to be forced into the V2 ContentItem contract.
+
+One unique PublishJob is allowed per RouteExecution.
+
+A RouteExecution moves from `ready_for_queue` to `queued` only after the durable job exists. The source checkpoint may advance only after this durable representation is present.
+
+### Scheduling and manual mode
+
+Publishing mode precedence:
+1. route publishing mode;
+2. destination publishing mode.
+
+Supported Phase 6 queue states:
+- direct -> queued immediately;
+- scheduled -> queued for the resolved schedule;
+- manual -> `manual_hold` until explicit release.
+
+Manual jobs are durable and are not claimable by workers before release.
+
+### Claim and lease
+
+V3 workers claim only V3 jobs carrying both:
+- `route_execution_id`;
+- `route_payload_id`.
+
+This prevents V3 workers from claiming legacy V2 queue rows.
+
+Due jobs are claimed with PostgreSQL `FOR UPDATE SKIP LOCKED`.
+
+A claim records:
+- worker id;
+- locked timestamp;
+- lease expiry;
+- incremented attempt count;
+- PublicationAttempt STARTED row.
+
+Leases can be renewed by the owning worker.
+
+### Retry / FloodWait contract
+
+Retries use deterministic exponential backoff with a configured cap.
+
+A Telegram RetryAfter/FloodWait value is treated as a minimum retry delay and is never shortened by the normal backoff cap.
+
+Jobs stop retrying when `max_attempts` is exhausted and move to failed.
+
+### Stale-work recovery
+
+Expired worker leases are recovered:
+- to `retry_wait` when attempts remain;
+- to `failed` when max attempts are exhausted.
+
+Runtime V3 now starts a reliability recovery component before Telegram ingestion.
+
+It periodically recovers:
+1. expired queue leases;
+2. `received/processing` RouteExecutions from source-event snapshots;
+3. `ready_for_dedup` executions from durable route payloads;
+4. `ready_for_queue` executions into idempotent PublishJobs.
+
+### Checkpoint catch-up
+
+Phase 6 testing exposed an ordering edge case: a later cursor could become queue-safe before an older blocker cleared.
+
+`SourceCheckpointCoordinator` now catches up automatically to the highest fully safe cursor before the next blocking execution.
+
+It still never jumps over unfinished work.
+
+### Migration
+
+Added `20261008_04_publish_queue_reliability.py`.
+
+It adds:
+- `source_event_snapshots`;
+- `route_publish_payloads`;
+- V3 PublishJob references/reliability fields;
+- `manual_hold` job status;
+- V3 due-job index.
+
+Because `job_status` belongs to the V2 reference schema, the Phase 6 downgrade treats the added PostgreSQL enum label as monotonic: V3 rows/tables/columns are removed and any manual jobs are mapped to `queued`, while the inert enum label may remain.
+
+This avoids unsafe reconstruction of a V2-owned PostgreSQL enum.
+
+## Phase 6 verification evidence
+
+Verified code head:
+
+`d58cac213f9f87afb0a0b3f611e4dbb998ebb9d8`
+
+GitHub Actions:
+
+- Run ID: `37707590801`
+- Conclusion: `success`
+
+Passed:
+- focused V3 contract tests: 39 passed;
+- full non-integration suite: 117 passed, 21 deselected;
+- Ruff: all checks passed;
+- compileall;
+- PostgreSQL 16 V2-reference schema bootstrap;
+- Alembic upgrade through `20261008_04`;
+- Alembic downgrade to base;
+- Alembic re-upgrade through `20261008_04`;
+- PostgreSQL V3 integration through queue reliability: 20 passed;
+- V3 CLI;
+- Docker build.
+
+Phase 6 integration evidence covers:
+- durable route payload + idempotent one-job handoff;
+- source-event snapshot recovery;
+- crash recovery from `received`;
+- crash recovery from `ready_for_dedup`;
+- crash recovery from `ready_for_queue`;
+- checkpoint catch-up after out-of-order completion;
+- RetryAfter-aware scheduling;
+- max-attempt exhaustion;
+- expired-lease recovery;
+- manual hold/release;
+- V3-only job claiming.
+
+## Phase 6 boundary
+
+Phase 6 does not:
+- call the Telegram Bot API;
+- stage/download Telegram media bytes;
+- publish text/media/albums;
+- map Telegram publishing errors;
+- mark successful jobs published from a real target;
+- alter Railway production.
+
+Those are Phase 7 responsibilities.
+
 ## External Telegram pilot
 
 Not executed for V3 yet.
@@ -392,23 +567,26 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `docs/v3-phase3-telegram-ingestion.md`
 - `docs/v3-phase4-content-processing.md`
 - `docs/v3-phase5-deduplication.md`
+- `docs/v3-phase6-publish-queue-reliability.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
 ## Next phase
 
-Phase 6 — Publish Queue and Reliability
+Phase 7 — Publisher and Media Lifecycle
 
 Required work:
-- durable queue handoff from `ready_for_queue`;
-- route-specific publish payload durability;
-- idempotent enqueue;
-- claim/lease semantics;
-- retries/backoff;
-- FloodWait-aware retry scheduling;
-- max attempts;
-- stuck-job recovery;
-- restart/crash recovery tests;
-- checkpoint transition only after durable queue representation.
+- V3 worker loop over leased PublishJobs;
+- durable route-payload loading;
+- Bot API publishing for text;
+- media acquisition/staging through the authorized user session;
+- photo/video/document/audio/voice publishing;
+- album semantics as one logical job;
+- caption/text limits and deterministic fallback;
+- Telegram error classification;
+- queue retry/failure integration;
+- published-message durability;
+- media cleanup/expiry;
+- isolated real-Telegram sandbox evidence for supported types.
 
-Phase 6 must not perform the full Telegram media publishing lifecycle; that remains Phase 7.
+Production Railway remains unchanged until the formal pilot/cutover phases.

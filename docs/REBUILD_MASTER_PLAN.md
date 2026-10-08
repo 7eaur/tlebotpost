@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-5 complete; Phase 6 next (external V3 Telegram pilot deferred until isolated session)
+Status: Phases 0-6 complete; Phase 7 next (external V3 Telegram pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -208,9 +208,28 @@ Gate: PASSED in GitHub Actions Run `37699795962` at code head `e93e1b446a1f9a88b
 
 Verified regressions include the V2 empty-media/text fingerprint defect, real duplicate matching, time-window expiry, explicit cross-source scope and concurrent duplicate races.
 
-### Phase 6 — Publish queue and reliability
-Durable jobs, claim/lease, retries/backoff/FloodWait, max attempts, stuck-job recovery and idempotent enqueue.
-Gate: restart/crash tests prove durable processing without silent loss.
+### Phase 6 — Publish queue and reliability — COMPLETE / VERIFIED
+Implemented:
+- durable source-event snapshots after Telegram acceptance;
+- durable route-specific processed payloads;
+- idempotent one-job-per-RouteExecution queue handoff;
+- direct/scheduled/manual-hold queue semantics;
+- PostgreSQL SKIP LOCKED claims;
+- worker leases and renewal;
+- exponential retry/backoff with RetryAfter/FloodWait minimum;
+- max-attempt enforcement;
+- expired-lease recovery;
+- periodic recovery from received/processing, ready-for-dedup and ready-for-queue;
+- checkpoint catch-up without jumping over blockers;
+- V3-only job claiming while legacy V2 jobs remain isolated.
+
+Gate: PASSED in GitHub Actions Run `37707590801` at code head `d58cac213f9f87afb0a0b3f611e4dbb998ebb9d8`.
+
+Boundary:
+- no Bot API publishing;
+- no media byte staging/download;
+- no real Telegram target proof;
+- no production migration/cutover.
 
 ### Phase 7 — Publisher and media lifecycle
 Text, photo, video, document, audio, voice, albums, staging/cleanup, caption limits and Telegram error mapping.
@@ -256,11 +275,13 @@ Completed:
 3. encode runtime/route/live-only behavior contracts;
 4. build the single V3 runtime foundation;
 5. build durable route execution and Telegram ingestion;
-6. build route-specific content processing through `ready_for_dedup`.
+6. build route-specific content processing;
+7. build typed/concurrent-safe deduplication;
+8. build durable queue handoff, leases, retries and crash recovery.
 
 Next:
-1. implement Phase 6 durable publish-queue and reliability handoff from `ready_for_queue`;
-2. continue through media/publishing and Control Bot V3;
+1. implement Phase 7 publisher and media lifecycle;
+2. continue through Control Bot V3 and observability;
 3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
 4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 

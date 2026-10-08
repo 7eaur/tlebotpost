@@ -52,6 +52,23 @@ The migration downgrade:
 
 The complete upgrade/downgrade/re-upgrade path through `20261008_03` is verified in CI.
 
+### `20261008_04_publish_queue_reliability.py`
+
+Adds:
+- `source_event_snapshots` for crash-safe recovery after durable Telegram acceptance;
+- `route_publish_payloads` for route-specific transformed publish payloads;
+- nullable V3 path for `publish_jobs.content_item_id`;
+- `route_execution_id` and `route_payload_id` on PublishJob;
+- `max_attempts` and `lease_expires_at`;
+- V3 due-job lookup index;
+- additive `manual_hold` value in the V2-owned `job_status` enum.
+
+Downgrade removes all Phase 6 tables, columns, indexes, constraints and V3 queue rows and maps manual-hold rows to queued.
+
+The `manual_hold` PostgreSQL enum label is deliberately monotonic on downgrade because `job_status` belongs to the V2 reference schema rather than to V3 Alembic. Reconstructing that V2-owned enum proved unsafe; leaving an unused additive label is backward-compatible.
+
+The complete upgrade/downgrade/re-upgrade path through `20261008_04` is verified in PostgreSQL 16 CI.
+
 ## Safety rules
 
 - do not auto-run legacy SQLite import from application startup;
@@ -84,4 +101,4 @@ alembic downgrade base
 alembic upgrade head
 ```
 
-and then executes the V3 PostgreSQL domain, ingestion, and content-processing integration suite.
+and then executes the V3 PostgreSQL domain, ingestion, content-processing, deduplication, and publish-queue reliability integration suite.
