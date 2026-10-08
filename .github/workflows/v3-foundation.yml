@@ -55,6 +55,7 @@ jobs:
           tests/test_v3_content_processing.py
           tests/test_v3_deduplication.py
           tests/test_v3_publish_queue.py
+          tests/test_v3_publisher.py
       - name: Full unit suite
         run: pytest -q -m "not integration"
       - name: Ruff
@@ -73,7 +74,7 @@ jobs:
           alembic current
           alembic downgrade base
           alembic upgrade head
-      - name: V3 PostgreSQL through publish-queue reliability integration
+      - name: V3 PostgreSQL through publisher integration
         run: >-
           pytest -q
           tests/integration/test_v3_route_execution_postgres.py
@@ -81,6 +82,7 @@ jobs:
           tests/integration/test_v3_content_processing_postgres.py
           tests/integration/test_v3_deduplication_postgres.py
           tests/integration/test_v3_publish_queue_postgres.py
+          tests/integration/test_v3_publisher_postgres.py
       - name: V3 CLI
         run: python -m app.v3 --help
       - name: Docker build
