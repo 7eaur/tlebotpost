@@ -141,6 +141,40 @@ class PublisherV3Settings:
 
 
 @dataclass(frozen=True, slots=True)
+class ControlV3Settings:
+    """Owner-only Telegram control surface settings."""
+
+    bot_token: str
+    owner_id: int
+
+    @classmethod
+    def from_env(cls) -> ControlV3Settings:
+        token = (
+            os.getenv("V3_CONTROL_BOT_TOKEN", "").strip()
+            or os.getenv("BOT_TOKEN", "").strip()
+        )
+        if not token:
+            raise V3ConfigurationError(
+                "V3_CONTROL_BOT_TOKEN or BOT_TOKEN is required when V3 control is enabled"
+            )
+        owner_raw = (
+            os.getenv("V3_CONTROL_OWNER_ID", "").strip()
+            or os.getenv("OWNER_ID", "").strip()
+        )
+        if not owner_raw:
+            raise V3ConfigurationError(
+                "V3_CONTROL_OWNER_ID or OWNER_ID is required when V3 control is enabled"
+            )
+        try:
+            owner_id = int(owner_raw)
+        except ValueError as exc:
+            raise V3ConfigurationError("V3 control owner id must be an integer") from exc
+        if owner_id <= 0:
+            raise V3ConfigurationError("V3 control owner id must be positive")
+        return cls(bot_token=token, owner_id=owner_id)
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeV3Settings:
     """All process-level settings needed by the V3 application foundation."""
 
@@ -150,6 +184,7 @@ class RuntimeV3Settings:
     telegram: TelegramV3Settings | None = None
     ingestion: IngestionV3Settings | None = None
     publisher: PublisherV3Settings | None = None
+    control: ControlV3Settings | None = None
 
     @classmethod
     def from_env(
@@ -170,12 +205,13 @@ class RuntimeV3Settings:
             ) from exc
 
         publisher_enabled = _bool_env("V3_PUBLISHER_ENABLED", False)
+        control_enabled = _bool_env("V3_CONTROL_ENABLED", False)
         telegram_requested = (
             _bool_env("V3_TELEGRAM_ENABLED", False)
             if require_telegram is None
             else require_telegram
         )
-        telegram_enabled = telegram_requested or publisher_enabled
+        telegram_enabled = telegram_requested or publisher_enabled or control_enabled
         values = cls(
             database=DatabaseSettings.from_env(),
             environment=environment,
@@ -183,6 +219,7 @@ class RuntimeV3Settings:
             telegram=TelegramV3Settings.from_env() if telegram_enabled else None,
             ingestion=IngestionV3Settings.from_env() if telegram_enabled else None,
             publisher=PublisherV3Settings.from_env() if publisher_enabled else None,
+            control=ControlV3Settings.from_env() if control_enabled else None,
         )
         values.validate()
         return values
@@ -202,6 +239,12 @@ class RuntimeV3Settings:
         ):
             raise V3ConfigurationError(
                 "V3 publisher requires Telegram ingestion settings"
+            )
+        if self.control is not None and (
+            self.telegram is None or self.ingestion is None
+        ):
+            raise V3ConfigurationError(
+                "V3 control requires Telegram ingestion settings"
             )
 
 

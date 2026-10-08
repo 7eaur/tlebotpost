@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from telethon import events
 
+from app.telegram.chat_resolver import ResolvedChat, TelegramChatResolver
 from app.telegram.session import TelegramSession
 
 RawEventCallback = Callable[[Any], Awaitable[None]]
@@ -30,6 +31,8 @@ class TelegramUserAdapter(Protocol):
     async def disconnect(self) -> None: ...
 
     async def latest_message_id(self, chat_id: int) -> int: ...
+
+    async def resolve_chat(self, input_ref: str) -> ResolvedChat: ...
 
     async def download_message_media(
         self,
@@ -83,6 +86,10 @@ class TelethonUserAdapter:
         if isinstance(messages, Sequence) and not isinstance(messages, (str, bytes)):
             return max((int(getattr(item, "id", 0) or 0) for item in messages), default=0)
         return int(getattr(messages, "id", 0) or 0)
+
+    async def resolve_chat(self, input_ref: str) -> ResolvedChat:
+        client = self._require_client()
+        return await TelegramChatResolver(client).resolve(input_ref)
 
     async def download_message_media(
         self,

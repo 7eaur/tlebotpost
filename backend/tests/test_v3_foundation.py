@@ -128,6 +128,61 @@ def test_v3_publisher_requires_bot_token(monkeypatch):
         RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
 
 
+def test_v3_control_settings_are_opt_in_and_enable_telegram_group(monkeypatch):
+    account_id = uuid.uuid4()
+    telegram_account_id = uuid.uuid4()
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(account_id))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(telegram_account_id))
+    monkeypatch.setenv("V3_CONTROL_ENABLED", "true")
+    monkeypatch.setenv("V3_CONTROL_BOT_TOKEN", "control-token")
+    monkeypatch.setenv("V3_CONTROL_OWNER_ID", "424242")
+
+    loaded = RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+    assert loaded.telegram is not None
+    assert loaded.ingestion is not None
+    assert loaded.control is not None
+    assert loaded.control.bot_token == "control-token"
+    assert loaded.control.owner_id == 424242
+
+
+def test_v3_control_settings_fallback_to_existing_bot_and_owner_env(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_CONTROL_ENABLED", "true")
+    monkeypatch.delenv("V3_CONTROL_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("V3_CONTROL_OWNER_ID", raising=False)
+    monkeypatch.setenv("BOT_TOKEN", "shared-token")
+    monkeypatch.setenv("OWNER_ID", "12345")
+
+    loaded = RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+    assert loaded.control is not None
+    assert loaded.control.bot_token == "shared-token"
+    assert loaded.control.owner_id == 12345
+
+
+def test_v3_control_requires_owner_id(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("API_ID", "123")
+    monkeypatch.setenv("API_HASH", "hash")
+    monkeypatch.setenv("V3_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_TELEGRAM_ACCOUNT_ID", str(uuid.uuid4()))
+    monkeypatch.setenv("V3_CONTROL_ENABLED", "true")
+    monkeypatch.setenv("V3_CONTROL_BOT_TOKEN", "control-token")
+    monkeypatch.delenv("V3_CONTROL_OWNER_ID", raising=False)
+    monkeypatch.delenv("OWNER_ID", raising=False)
+
+    with pytest.raises(V3ConfigurationError, match="OWNER_ID"):
+        RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+
 def test_v3_settings_reject_unknown_environment(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
     monkeypatch.setenv("APP_ENV", "mystery")

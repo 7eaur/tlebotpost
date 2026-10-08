@@ -92,17 +92,16 @@ class RuntimeV3:
                 api_hash=settings.telegram.api_hash,
                 session_path=settings.telegram.session_path,
             )
-            components.append(
-                TelegramIngestionComponent(
-                    adapter=adapter,
-                    session_factory=database.session_factory,
-                    account_id=settings.ingestion.account_id,
-                    telegram_account_id=settings.ingestion.telegram_account_id,
-                    album_window_seconds=settings.ingestion.album_window_seconds,
-                    reconnect_delays=settings.ingestion.reconnect_delays,
-                    on_registration=processor.process_registration,
-                )
+            ingestion_component = TelegramIngestionComponent(
+                adapter=adapter,
+                session_factory=database.session_factory,
+                account_id=settings.ingestion.account_id,
+                telegram_account_id=settings.ingestion.telegram_account_id,
+                album_window_seconds=settings.ingestion.album_window_seconds,
+                reconnect_delays=settings.ingestion.reconnect_delays,
+                on_registration=processor.process_registration,
             )
+            components.append(ingestion_component)
             if settings.publisher is not None:
                 from app.v3.publisher import (
                     MediaStagerV3,
@@ -137,6 +136,25 @@ class RuntimeV3:
                         poll_interval_seconds=settings.publisher.poll_interval_seconds,
                         batch_size=settings.publisher.queue_batch_size,
                         lease_seconds=settings.publisher.lease_seconds,
+                    )
+                )
+            if settings.control is not None:
+                from app.v3.control import ControlBotV3, ControlServiceV3
+
+                control_service = ControlServiceV3(
+                    session_factory=database.session_factory,
+                    account_id=settings.ingestion.account_id,
+                    telegram_account_id=settings.ingestion.telegram_account_id,
+                    resolve_chat=adapter.resolve_chat,
+                    reload_callback=ingestion_component.reload,
+                    queue=queue,
+                    telegram_connected=lambda: adapter.is_connected,
+                )
+                components.append(
+                    ControlBotV3(
+                        token=settings.control.bot_token,
+                        owner_id=settings.control.owner_id,
+                        service=control_service,
                     )
                 )
         return cls(

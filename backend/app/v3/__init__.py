@@ -5,6 +5,7 @@ rebuild is developed and verified.
 """
 
 from .config import (
+    ControlV3Settings,
     IngestionV3Settings,
     PublisherV3Settings,
     RuntimeEnvironment,
@@ -15,6 +16,7 @@ from .config import (
 from .runtime import RuntimeState, RuntimeV3
 
 __all__ = [
+    "ControlV3Settings",
     "IngestionV3Settings",
     "PublisherV3Settings",
     "RuntimeEnvironment",
