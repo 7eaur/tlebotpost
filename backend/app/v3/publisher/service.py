@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections.abc import Awaitable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Awaitable, TypeVar
+from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from telegram.error import BadRequest, Forbidden, NetworkError, RetryAfter, TelegramError, TimedOut
+from telegram.error import (\n    BadRequest,\n    Forbidden,\n    NetworkError,\n    RetryAfter,\n    TelegramError,\n    TimedOut,\n)
 
 from app.db.models import (
     Destination,
