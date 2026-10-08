@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Sequence
 from contextlib import ExitStack
-from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from telegram import (
     Bot,
