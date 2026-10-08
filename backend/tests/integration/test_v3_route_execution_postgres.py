@@ -186,6 +186,9 @@ async def test_checkpoint_cannot_jump_over_older_unfinished_event():
                 source_id=source.id,
                 cursor_message_id=201,
             )
+            caught_up = await session.get(SourceCheckpoint, source.id)
+            assert caught_up is not None
+            assert caught_up.last_committed_message_id == 202
             assert await checkpoint.try_advance(
                 source_id=source.id,
                 cursor_message_id=202,
