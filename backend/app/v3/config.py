@@ -181,6 +181,7 @@ class RuntimeV3Settings:
     database: DatabaseSettings
     environment: RuntimeEnvironment = RuntimeEnvironment.DEVELOPMENT
     log_level: str = "INFO"
+    log_format: str = "json"
     telegram: TelegramV3Settings | None = None
     ingestion: IngestionV3Settings | None = None
     publisher: PublisherV3Settings | None = None
@@ -216,6 +217,7 @@ class RuntimeV3Settings:
             database=DatabaseSettings.from_env(),
             environment=environment,
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
+            log_format=os.getenv("V3_LOG_FORMAT", "json").strip().lower() or "json",
             telegram=TelegramV3Settings.from_env() if telegram_enabled else None,
             ingestion=IngestionV3Settings.from_env() if telegram_enabled else None,
             publisher=PublisherV3Settings.from_env() if publisher_enabled else None,
@@ -230,6 +232,8 @@ class RuntimeV3Settings:
             raise V3ConfigurationError(
                 "LOG_LEVEL must be one of CRITICAL, ERROR, WARNING, INFO, DEBUG"
             )
+        if self.log_format not in {"json", "text"}:
+            raise V3ConfigurationError("V3_LOG_FORMAT must be json or text")
         if (self.telegram is None) != (self.ingestion is None):
             raise V3ConfigurationError(
                 "V3 Telegram and ingestion settings must be enabled together"

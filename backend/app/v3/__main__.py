@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
 import signal
 from pathlib import Path
 
 from .config import RuntimeV3Settings
+from .observability import configure_v3_logging
 from .runtime import RuntimeV3
 
 
@@ -28,12 +28,7 @@ async def run(*, env_file: str | Path | None, require_telegram: bool = False) ->
         env_file,
         require_telegram=require_telegram,
     )
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level),
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    configure_v3_logging(settings)
 
     runtime = RuntimeV3.from_settings(settings)
     loop = asyncio.get_running_loop()

@@ -55,6 +55,10 @@ class RuntimeV3:
         if settings.telegram is not None and settings.ingestion is not None:
             from app.v3.content import ContentProcessingCoordinator
             from app.v3.deduplication import DeduplicationCoordinator
+            from app.v3.observability import (
+                ObservabilityRuntimeComponent,
+                ObservabilityServiceV3,
+            )
             from app.v3.publish_queue import (
                 PublishQueueV3,
                 QueueReliabilityRecoveryComponent,
@@ -70,6 +74,11 @@ class RuntimeV3:
                     else 120
                 ),
             )
+            observability = ObservabilityServiceV3(
+                database.session_factory,
+                settings.ingestion.account_id,
+            )
+            components.append(ObservabilityRuntimeComponent(observability))
             deduplication = DeduplicationCoordinator(
                 database.session_factory,
                 settings.ingestion.account_id,
@@ -155,6 +164,7 @@ class RuntimeV3:
                         token=settings.control.bot_token,
                         owner_id=settings.control.owner_id,
                         service=control_service,
+                        observability=observability,
                     )
                 )
         return cls(
@@ -188,6 +198,7 @@ class RuntimeV3:
             self.settings.environment,
             len(self._started_components),
         )
+        await self._notify_runtime_ready()
 
     async def stop(self) -> None:
         if self.state is RuntimeState.STOPPED:
@@ -217,6 +228,24 @@ class RuntimeV3:
             "database": database_ready,
             "components_started": len(self._started_components),
         }
+
+    async def _notify_runtime_ready(self) -> None:
+        snapshot: dict[str, object] = {
+            "state": self.state.value,
+            "database": True,
+            "components_started": len(self._started_components),
+        }
+        for component in tuple(self._started_components):
+            hook = getattr(component, "runtime_ready", None)
+            if hook is None:
+                continue
+            try:
+                await hook(snapshot)
+            except Exception:
+                self._logger.exception(
+                    "V3 runtime-ready notification failed: component=%s",
+                    component.name,
+                )
 
     async def _rollback_started_components(self) -> None:
         while self._started_components:

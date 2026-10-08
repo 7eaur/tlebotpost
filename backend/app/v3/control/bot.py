@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 from telegram import BotCommand, Update
 from telegram.constants import ChatType
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+from app.v3.observability import ObservabilityError, ObservabilityServiceV3
 
 from .errors import ControlServiceError
 from .service import ControlServiceV3
@@ -32,6 +35,8 @@ _COMMANDS = (
     ("pause", "إيقاف Project مؤقتًا"),
     ("release", "تحرير manual PublishJob"),
     ("reload", "إعادة تحميل الاشتراكات بأمان"),
+    ("metrics", "عدادات V3 التشغيلية"),
+    ("job", "تشخيص PublishJob بواسطة UUID"),
 )
 
 
@@ -46,6 +51,7 @@ class ControlBotV3:
         token: str,
         owner_id: int,
         service: ControlServiceV3,
+        observability: ObservabilityServiceV3 | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("control bot token is required")
@@ -54,6 +60,7 @@ class ControlBotV3:
         self.token = token
         self.owner_id = owner_id
         self.service = service
+        self.observability = observability
         self.application: Application | None = None
         self._logger = logging.getLogger(__name__)
 
@@ -81,6 +88,8 @@ class ControlBotV3:
             "pause": self.pause_command,
             "release": self.release_command,
             "reload": self.reload_command,
+            "metrics": self.metrics_command,
+            "job": self.job_command,
         }
         for name, callback in handlers.items():
             application.add_handler(CommandHandler(name, callback))
@@ -136,7 +145,9 @@ class ControlBotV3:
             "تفعيل/إيقاف العناصر: source_on/source_off، "
             "destination_on/destination_off، route_on/route_off\n"
             "تحرير Manual Job: /release JOB_UUID\n"
-            "Reload آمن: /reload",
+            "Reload آمن: /reload\n"
+            "Metrics: /metrics\n"
+            "تشخيص Job: /job JOB_UUID",
         )
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -455,6 +466,103 @@ class ControlBotV3:
             return
         await self._reply(update, "✅ تم Reload آمن لاشتراكات V3.")
 
+    async def metrics_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.observability is None:
+            await self._reply(update, "Observability غير مهيأة في هذا التشغيل.")
+            return
+        try:
+            metrics = await self.observability.metrics()
+        except Exception as exc:
+            await self._operation_error(update, exc)
+            return
+        jobs = ", ".join(
+            f"{key}={value}" for key, value in sorted(metrics.jobs_by_status.items())
+        ) or "none"
+        executions = ", ".join(
+            f"{key}={value}"
+            for key, value in sorted(metrics.executions_by_status.items())
+        ) or "none"
+        await self._reply(
+            update,
+            "📈 V3 Metrics\n"
+            f"• Jobs: {jobs}\n"
+            f"• RouteExecutions: {executions}\n"
+            f"• Attempts: {metrics.attempts_total}\n"
+            f"• System events: {metrics.system_events_total}",
+        )
+
+    async def job_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if len(context.args) != 1:
+            await self._reply(update, "الاستخدام: /job JOB_UUID")
+            return
+        if self.observability is None:
+            await self._reply(update, "Observability غير مهيأة في هذا التشغيل.")
+            return
+        try:
+            job = await self.observability.diagnose_job(context.args[0])
+        except Exception as exc:
+            await self._operation_error(update, exc)
+            return
+        attempts = job.attempts[-10:]
+        attempt_lines = "\n".join(
+            (
+                f"  #{item.attempt_number} {item.status} "
+                f"error={item.error_code or '-'} "
+                f"tg={item.telegram_message_id or '-'} "
+                f"latency_ms={item.latency_ms if item.latency_ms is not None else '-'}"
+            )
+            for item in attempts
+        ) or "  none"
+        message_ids = ",".join(str(value) for value in job.telegram_message_ids) or "-"
+        await self._reply(
+            update,
+            "🔎 PublishJob\n"
+            f"• id: {job.job_id}\n"
+            f"• status: {job.job_status}\n"
+            f"• route_execution: {job.route_execution_id or '-'}\n"
+            f"• route_status: {job.route_status or '-'}\n"
+            f"• route_reason: {job.route_reason_code or '-'}\n"
+            f"• destination: {job.destination_id}\n"
+            f"• source_route: {job.source_route_id or '-'}\n"
+            f"• attempts: {job.attempt_count}/{job.max_attempts}\n"
+            f"• last_error: {job.last_error_code or '-'}\n"
+            f"• next_attempt: {job.next_attempt_at.isoformat() if job.next_attempt_at else '-'}\n"
+            f"• published_at: {job.published_at.isoformat() if job.published_at else '-'}\n"
+            f"• telegram_message_ids: {message_ids}\n"
+            f"• latest attempts:\n{attempt_lines}",
+        )
+
+    async def runtime_ready(self, snapshot: Mapping[str, object]) -> None:
+        application = self.application
+        if application is None or not application.running:
+            return
+        status = await self.service.status()
+        await application.bot.send_message(
+            chat_id=self.owner_id,
+            text=(
+                "✅ Telegram Relay V3 جاهز\n"
+                f"• state: {snapshot.get('state', 'unknown')}\n"
+                f"• database: {snapshot.get('database', False)}\n"
+                f"• components: {snapshot.get('components_started', 0)}\n"
+                f"• sources: {status.sources_active}/{status.sources_total}\n"
+                f"• routes: {status.routes_active}/{status.routes_total}\n"
+                f"• queue pending: {status.queue_pending}\n"
+                f"• queue failed: {status.queue_failed}"
+            ),
+        )
+
     async def _authorized(self, update: Update) -> bool:
         user = update.effective_user
         chat = update.effective_chat
@@ -471,7 +579,7 @@ class ControlBotV3:
         return True
 
     async def _operation_error(self, update: Update, exc: Exception) -> None:
-        if isinstance(exc, ControlServiceError):
+        if isinstance(exc, (ControlServiceError, ObservabilityError)):
             message = _friendly_control_error(str(exc))
         else:
             self._logger.exception("V3 control command failed")
@@ -507,4 +615,7 @@ def _friendly_control_error(code: str) -> str:
         "configuration_saved_runtime_reload_failed": (
             "تم حفظ الإعداد، لكن Reload فشل. استخدم /reload بعد فحص /status."
         ),
+        "publish_job_not_found": "PublishJob غير موجود في حساب V3.",
+        "unsafe_event_detail_key": "تم رفض Event detail غير آمن.",
+        "unsafe_event_detail_value": "تم رفض Event detail غير آمن.",
     }.get(code, code)

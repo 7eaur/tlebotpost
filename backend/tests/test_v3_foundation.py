@@ -37,6 +37,19 @@ class FakeComponent:
         self.events.append(f"{self.name}:stop")
 
 
+class FakeReadyComponent(FakeComponent):
+    async def runtime_ready(self, snapshot: dict[str, object]) -> None:
+        self.events.append(
+            f"{self.name}:ready:{snapshot['state']}:{snapshot['components_started']}"
+        )
+
+
+class BrokenReadyComponent(FakeComponent):
+    async def runtime_ready(self, snapshot: dict[str, object]) -> None:
+        self.events.append(f"{self.name}:ready-failed")
+        raise RuntimeError("ready notification failed")
+
+
 def settings() -> RuntimeV3Settings:
     return RuntimeV3Settings(
         database=DatabaseSettings("postgresql+asyncpg://user:pass@localhost/app"),
@@ -58,6 +71,23 @@ def test_v3_settings_allow_foundation_without_telegram(monkeypatch):
     assert loaded.environment is RuntimeEnvironment.TEST
     assert loaded.log_level == "DEBUG"
     assert loaded.telegram is None
+
+
+def test_v3_settings_parse_log_format(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("V3_LOG_FORMAT", "text")
+
+    loaded = RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
+
+    assert loaded.log_format == "text"
+
+
+def test_v3_settings_reject_invalid_log_format(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost/app")
+    monkeypatch.setenv("V3_LOG_FORMAT", "unsafe")
+
+    with pytest.raises(V3ConfigurationError, match="V3_LOG_FORMAT"):
+        RuntimeV3Settings.from_env(env_file=None, require_telegram=False)
 
 
 def test_v3_settings_require_telegram_as_one_group(monkeypatch):
@@ -219,6 +249,36 @@ async def test_runtime_starts_in_order_and_stops_in_reverse():
         "db:ping",
         "second:stop",
         "first:stop",
+        "db:close",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_notifies_ready_hooks_without_extra_database_probe():
+    events: list[str] = []
+    first = FakeReadyComponent("ready", events)
+    broken = BrokenReadyComponent("broken-ready", events)
+    runtime = RuntimeV3(
+        database=FakeDatabase(events),
+        settings=settings(),
+        components=(first, broken),
+    )
+
+    await runtime.start()
+
+    assert runtime.state is RuntimeState.READY
+    assert events == [
+        "db:ping",
+        "ready:start",
+        "broken-ready:start",
+        "ready:ready:ready:2",
+        "broken-ready:ready-failed",
+    ]
+
+    await runtime.stop()
+    assert events[-3:] == [
+        "broken-ready:stop",
+        "ready:stop",
         "db:close",
     ]
 
