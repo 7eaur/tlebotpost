@@ -63,7 +63,10 @@ class PublisherWorkerComponent:
         await self.bot.start()
         removed = self.stager.cleanup_stale()
         if removed:
-            self._logger.info("V3 publisher removed stale media staging directories: count=%s", removed)
+            self._logger.info(
+                "V3 publisher removed stale media staging directories: count=%s",
+                removed,
+            )
         self._task = asyncio.create_task(self._loop(), name="v3-telegram-publisher")
 
     async def stop(self) -> None:
