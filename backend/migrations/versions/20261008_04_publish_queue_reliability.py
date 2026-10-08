@@ -16,17 +16,6 @@ down_revision: str | None = "20261008_03"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-_OLD_JOB_STATUS_VALUES = (
-    "queued",
-    "processing",
-    "publishing",
-    "published",
-    "retry_wait",
-    "failed",
-    "cancelled",
-    "expired",
-)
-
 
 def upgrade() -> None:
     op.execute(
@@ -238,19 +227,7 @@ def downgrade() -> None:
         "SET status = 'queued'::job_status "
         "WHERE status = 'manual_hold'::job_status"
     )
-    op.execute("ALTER TABLE publish_jobs ALTER COLUMN status DROP DEFAULT")
-    op.execute("ALTER TYPE job_status RENAME TO job_status_v3_phase6")
-    op.execute(
-        "CREATE TYPE job_status AS ENUM ("
-        + ", ".join(f"'{value}'" for value in _OLD_JOB_STATUS_VALUES)
-        + ")"
-    )
-    op.execute(
-        "ALTER TABLE publish_jobs ALTER COLUMN status "
-        "TYPE job_status USING status::text::job_status"
-    )
-    op.execute("DROP TYPE job_status_v3_phase6")
-    op.execute(
-        "ALTER TABLE publish_jobs ALTER COLUMN status "
-        "SET DEFAULT 'queued'::job_status"
-    )
+    # job_status belongs to the V2 reference schema rather than to V3 Alembic.
+    # PostgreSQL enum labels are therefore treated as additive/monotonic here:
+    # after downgrade the inert manual_hold label may remain, while all V3 rows,
+    # columns, constraints, indexes and tables have been removed.
