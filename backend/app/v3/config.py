@@ -83,6 +83,64 @@ class IngestionV3Settings:
 
 
 @dataclass(frozen=True, slots=True)
+class PublisherV3Settings:
+    """Bot API worker and transient media staging settings."""
+
+    bot_token: str
+    worker_id: str = "publisher-v3"
+    poll_interval_seconds: float = 1.0
+    queue_batch_size: int = 10
+    lease_seconds: int = 120
+    send_interval_seconds: float = 1.1
+    staging_path: Path = Path("data/v3-media-staging")
+    staging_stale_seconds: int = 21600
+
+    @classmethod
+    def from_env(cls) -> PublisherV3Settings:
+        try:
+            values = cls(
+                bot_token=_required("BOT_TOKEN"),
+                worker_id=os.getenv("V3_PUBLISHER_WORKER_ID", "publisher-v3").strip()
+                or "publisher-v3",
+                poll_interval_seconds=float(
+                    os.getenv("V3_PUBLISHER_POLL_INTERVAL_SECONDS", "1")
+                ),
+                queue_batch_size=int(os.getenv("V3_PUBLISHER_BATCH_SIZE", "10")),
+                lease_seconds=int(os.getenv("V3_PUBLISHER_LEASE_SECONDS", "120")),
+                send_interval_seconds=float(
+                    os.getenv("V3_PUBLISHER_SEND_INTERVAL_SECONDS", "1.1")
+                ),
+                staging_path=Path(
+                    os.getenv("V3_MEDIA_STAGING_PATH", "data/v3-media-staging")
+                ),
+                staging_stale_seconds=int(
+                    os.getenv("V3_MEDIA_STAGING_STALE_SECONDS", "21600")
+                ),
+            )
+        except V3ConfigurationError:
+            raise
+        except (TypeError, ValueError) as exc:
+            raise V3ConfigurationError("invalid V3 publisher environment value") from exc
+        if values.poll_interval_seconds <= 0:
+            raise V3ConfigurationError(
+                "V3_PUBLISHER_POLL_INTERVAL_SECONDS must be positive"
+            )
+        if values.queue_batch_size <= 0:
+            raise V3ConfigurationError("V3_PUBLISHER_BATCH_SIZE must be positive")
+        if values.lease_seconds <= 0:
+            raise V3ConfigurationError("V3_PUBLISHER_LEASE_SECONDS must be positive")
+        if values.send_interval_seconds < 0:
+            raise V3ConfigurationError(
+                "V3_PUBLISHER_SEND_INTERVAL_SECONDS cannot be negative"
+            )
+        if values.staging_stale_seconds <= 0:
+            raise V3ConfigurationError("V3_MEDIA_STAGING_STALE_SECONDS must be positive")
+        if not values.worker_id:
+            raise V3ConfigurationError("V3_PUBLISHER_WORKER_ID is required")
+        return values
+
+
+@dataclass(frozen=True, slots=True)
 class RuntimeV3Settings:
     """All process-level settings needed by the V3 application foundation."""
 
@@ -91,6 +149,7 @@ class RuntimeV3Settings:
     log_level: str = "INFO"
     telegram: TelegramV3Settings | None = None
     ingestion: IngestionV3Settings | None = None
+    publisher: PublisherV3Settings | None = None
 
     @classmethod
     def from_env(
@@ -110,17 +169,20 @@ class RuntimeV3Settings:
                 "APP_ENV must be one of: development, test, production"
             ) from exc
 
-        telegram_enabled = (
+        publisher_enabled = _bool_env("V3_PUBLISHER_ENABLED", False)
+        telegram_requested = (
             _bool_env("V3_TELEGRAM_ENABLED", False)
             if require_telegram is None
             else require_telegram
         )
+        telegram_enabled = telegram_requested or publisher_enabled
         values = cls(
             database=DatabaseSettings.from_env(),
             environment=environment,
             log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
             telegram=TelegramV3Settings.from_env() if telegram_enabled else None,
             ingestion=IngestionV3Settings.from_env() if telegram_enabled else None,
+            publisher=PublisherV3Settings.from_env() if publisher_enabled else None,
         )
         values.validate()
         return values
@@ -134,6 +196,12 @@ class RuntimeV3Settings:
         if (self.telegram is None) != (self.ingestion is None):
             raise V3ConfigurationError(
                 "V3 Telegram and ingestion settings must be enabled together"
+            )
+        if self.publisher is not None and (
+            self.telegram is None or self.ingestion is None
+        ):
+            raise V3ConfigurationError(
+                "V3 publisher requires Telegram ingestion settings"
             )
 
 
