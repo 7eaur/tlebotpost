@@ -11,7 +11,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from .errors import ControlServiceError
 from .service import ControlServiceV3
 
-
 _COMMANDS = (
     ("start", "القائمة والمساعدة"),
     ("status", "حالة V3 والطابور"),
