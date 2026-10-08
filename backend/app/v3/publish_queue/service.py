@@ -444,13 +444,14 @@ class PublishQueueV3:
         error_message: str,
         now: datetime | None = None,
         retry_after_seconds: int | None = None,
+        safe_after_publish_start: bool = False,
     ) -> JobStatus:
         current = _utc(now)
         worker = _worker_id(worker_id)
         async with self.session_factory() as session:
             async with session.begin():
                 job = await self._owned_claim(session, job_id, worker)
-                if job.status is JobStatus.PUBLISHING:
+                if job.status is JobStatus.PUBLISHING and not safe_after_publish_start:
                     await self._fail_locked_job(
                         session,
                         job,
