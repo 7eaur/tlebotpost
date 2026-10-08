@@ -182,7 +182,7 @@ async def seed_job(
     session.add(payload)
     await session.flush()
 
-    now = datetime(2026, 10, 9, 0, 0, tzinfo=UTC)
+    now = datetime(2020, 1, 1, 0, 0, tzinfo=UTC)
     job = PublishJob(
         account_id=account.id,
         content_item_id=None,
@@ -481,7 +481,7 @@ async def test_expired_publishing_lease_fails_unknown_instead_of_retrying(tmp_pa
         pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
     database = Database.from_env()
     account_id = None
-    start = datetime(2026, 10, 9, 1, 0, tzinfo=UTC)
+    start = datetime(2030, 1, 1, 1, 0, tzinfo=UTC)
     try:
         async with database.transaction() as session:
             account, _source, _destination, execution, job = await seed_job(

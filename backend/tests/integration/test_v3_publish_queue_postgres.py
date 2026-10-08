@@ -357,7 +357,7 @@ async def test_claim_retry_honors_retry_after_and_max_attempts():
         pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
     database = Database.from_env()
     account_id = None
-    start = datetime(2026, 10, 8, 3, 0, tzinfo=UTC)
+    start = datetime(2030, 1, 1, 3, 0, tzinfo=UTC)
     try:
         async with database.transaction() as session:
             account, source, _destination, _route = await seed(
@@ -455,7 +455,7 @@ async def test_expired_lease_is_recovered_to_retry_wait_and_can_be_reclaimed():
         pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
     database = Database.from_env()
     account_id = None
-    start = datetime(2026, 10, 8, 4, 0, tzinfo=UTC)
+    start = datetime(2030, 1, 1, 4, 0, tzinfo=UTC)
     try:
         async with database.transaction() as session:
             account, source, _destination, _route = await seed(
@@ -515,7 +515,7 @@ async def test_manual_mode_is_durable_hold_until_explicit_release():
         pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
     database = Database.from_env()
     account_id = None
-    now = datetime(2026, 10, 8, 5, 0, tzinfo=UTC)
+    now = datetime(2030, 1, 1, 5, 0, tzinfo=UTC)
     try:
         async with database.transaction() as session:
             account, source, _destination, _route = await seed(
