@@ -22,6 +22,7 @@ from app.db.models import (
     RouteStatus,
     Source,
     SourceCheckpoint,
+    SourceEventSnapshot,
     SourceRoute,
     SourceStatus,
     TelegramAccount,
@@ -219,6 +220,18 @@ async def test_v3_ingestion_live_baseline_album_and_reconnect():
                 ("group:77", 13),
             ]
             assert all(item.status is RouteExecutionStatus.RECEIVED for item in executions)
+            snapshots = (
+                await session.scalars(
+                    select(SourceEventSnapshot)
+                    .where(SourceEventSnapshot.account_id == account_id)
+                    .order_by(SourceEventSnapshot.cursor_message_id)
+                )
+            ).all()
+            assert [(item.event_key, item.cursor_message_id) for item in snapshots] == [
+                ("message:11", 11),
+                ("group:77", 13),
+            ]
+            assert len(snapshots[1].messages_json) == 2
             checkpoint = await session.get(SourceCheckpoint, source_id)
             assert checkpoint is not None
             assert checkpoint.last_seen_message_id == 13

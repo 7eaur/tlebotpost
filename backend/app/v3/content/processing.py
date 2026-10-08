@@ -20,6 +20,7 @@ from app.db.models import (
     TransformProfile,
 )
 from app.v3.domain import EventRegistration, RouteExecutionService, SourceCheckpointCoordinator
+from app.v3.telegram.snapshots import SourceEventSnapshotStore
 from app.v3.telegram.types import SourceEvent
 
 from .contracts import (
@@ -30,6 +31,7 @@ from .contracts import (
     RouteContentPolicy,
 )
 from .normalization import ContentNormalizerV3
+from .persistence import RoutePayloadStore
 
 _READY_REASON = "ready_for_dedup"
 _FAILED_REASON = "content_processing_error"
@@ -225,6 +227,8 @@ class ContentProcessingCoordinator:
         self.filters = filters or ContentFilterV3()
         self.branding = branding or BrandingRendererV3()
         self.policies = RoutePolicyResolver(account_id)
+        self.payloads = RoutePayloadStore()
+        self.source_snapshots = SourceEventSnapshotStore()
         self.on_ready = on_ready
         self._logger = logging.getLogger(__name__)
 
@@ -242,6 +246,76 @@ class ContentProcessingCoordinator:
                 await self.on_ready(result)
         return tuple(results)
 
+    async def recover_pending(self, *, limit: int = 100) -> int:
+        if limit <= 0:
+            raise ContentProcessingError("limit must be positive")
+        async with self.session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(
+                        RouteExecution.source_id,
+                        RouteExecution.event_key,
+                        RouteExecution.cursor_message_id,
+                    )
+                    .where(
+                        RouteExecution.account_id == self.account_id,
+                        RouteExecution.status.in_(
+                            (
+                                RouteExecutionStatus.RECEIVED,
+                                RouteExecutionStatus.PROCESSING,
+                            )
+                        ),
+                    )
+                    .order_by(RouteExecution.created_at, RouteExecution.id)
+                    .limit(limit)
+                )
+            ).all()
+
+        recovered = 0
+        seen: set[tuple[uuid.UUID, str]] = set()
+        for source_id, event_key, cursor_message_id in rows:
+            key = (source_id, event_key)
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                async with self.session_factory() as session:
+                    event = await self.source_snapshots.restore(
+                        session,
+                        account_id=self.account_id,
+                        source_id=source_id,
+                        event_key=event_key,
+                    )
+                    executions = tuple(
+                        (
+                            await session.scalars(
+                                select(RouteExecution)
+                                .where(
+                                    RouteExecution.account_id == self.account_id,
+                                    RouteExecution.source_id == source_id,
+                                    RouteExecution.event_key == event_key,
+                                )
+                                .order_by(RouteExecution.created_at, RouteExecution.id)
+                            )
+                        ).all()
+                    )
+                registration = EventRegistration(
+                    source_id=source_id,
+                    event_key=event_key,
+                    cursor_message_id=cursor_message_id,
+                    executions=executions,
+                )
+                await self.process_registration(event, registration)
+            except Exception:
+                self._logger.exception(
+                    "V3 content recovery blocked: source_id=%s event_key=%s",
+                    source_id,
+                    event_key,
+                )
+                continue
+            recovered += 1
+        return recovered
+
     async def _process_execution(
         self,
         event: SourceEvent,
@@ -251,10 +325,33 @@ class ContentProcessingCoordinator:
             async with self.session_factory() as session:
                 async with session.begin():
                     service = RouteExecutionService(session, self.account_id)
-                    execution = await service.executions.get(execution_id)
+                    execution = await session.scalar(
+                        select(RouteExecution)
+                        .where(
+                            RouteExecution.id == execution_id,
+                            RouteExecution.account_id == self.account_id,
+                        )
+                        .with_for_update()
+                    )
                     if execution is None:
                         raise ContentProcessingError("route_execution_unavailable")
                     self._validate_execution(event, execution)
+
+                    if execution.status is RouteExecutionStatus.READY_FOR_DEDUP:
+                        payload = await self.payloads.get(
+                            session,
+                            account_id=self.account_id,
+                            execution_id=execution.id,
+                        )
+                        if payload is None:
+                            raise ContentProcessingError("route_payload_missing")
+                        restored = self.payloads.to_content(payload)
+                        return ProcessingResult(
+                            execution_id=execution.id,
+                            decision=ProcessingDecision.READY_FOR_DEDUP,
+                            reason_code=execution.reason_code or _READY_REASON,
+                            content=restored,
+                        )
 
                     if execution.status in {
                         RouteExecutionStatus.FILTERED,
@@ -309,12 +406,17 @@ class ContentProcessingCoordinator:
                         )
 
                     rendered = self.branding.render(normalized, policy)
-                    if execution.status is not RouteExecutionStatus.READY_FOR_DEDUP:
-                        await service.transition(
-                            execution.id,
-                            RouteExecutionStatus.READY_FOR_DEDUP,
-                            reason_code=_READY_REASON,
-                        )
+                    await self.payloads.persist(
+                        session,
+                        account_id=self.account_id,
+                        execution_id=execution.id,
+                        content=rendered,
+                    )
+                    await service.transition(
+                        execution.id,
+                        RouteExecutionStatus.READY_FOR_DEDUP,
+                        reason_code=_READY_REASON,
+                    )
                     return ProcessingResult(
                         execution_id=execution.id,
                         decision=ProcessingDecision.READY_FOR_DEDUP,

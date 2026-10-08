@@ -9,6 +9,7 @@ from .contracts import (
     RouteContentPolicy,
 )
 from .normalization import ContentNormalizerV3
+from .persistence import RoutePayloadError, RoutePayloadStore
 from .processing import (
     BrandingRendererV3,
     ContentFilterV3,
@@ -29,5 +30,7 @@ __all__ = [
     "ProcessingDecision",
     "ProcessingResult",
     "RouteContentPolicy",
+    "RoutePayloadError",
+    "RoutePayloadStore",
     "RoutePolicyResolver",
 ]

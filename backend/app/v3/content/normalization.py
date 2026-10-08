@@ -232,6 +232,9 @@ class ContentNormalizerV3:
         media_type: str,
     ) -> str:
         for candidate in (payload, media):
+            identity = getattr(candidate, "identity", None)
+            if isinstance(identity, str) and identity:
+                return identity
             for name in ("file_unique_id", "id", "document_id"):
                 value = getattr(candidate, name, None)
                 if value not in (None, ""):

@@ -34,6 +34,7 @@ from app.v3.domain import EventRegistration, RouteExecutionService
 
 from .adapter import TelegramUserAdapter
 from .albums import AlbumCollectorV3, AlbumSource
+from .snapshots import SourceEventSnapshotStore
 from .types import SourceEvent
 
 RegistrationCallback = Callable[[SourceEvent, EventRegistration], Awaitable[None]]
@@ -71,6 +72,7 @@ class TelegramIngestionComponent:
         self.telegram_account_id = telegram_account_id
         self.reconnect_delays = reconnect_delays
         self.on_registration = on_registration
+        self._snapshots = SourceEventSnapshotStore()
         self._collector = AlbumCollectorV3(
             self._persist_source_event,
             window_seconds=album_window_seconds,
@@ -258,6 +260,11 @@ class TelegramIngestionComponent:
                         cursor_message_id=event.cursor_message_id,
                         telegram_message_id=event.primary_message_id,
                         telegram_grouped_id=event.grouped_id,
+                    )
+                    await self._snapshots.persist(
+                        session,
+                        event=event,
+                        event_key=registration.event_key,
                     )
                     checkpoint = await session.scalar(
                         select(SourceCheckpoint)

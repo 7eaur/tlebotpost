@@ -115,6 +115,7 @@ class ContentStatus(StrEnum):
 
 class JobStatus(StrEnum):
     QUEUED = "queued"
+    MANUAL_HOLD = "manual_hold"
     PROCESSING = "processing"
     PUBLISHING = "publishing"
     PUBLISHED = "published"
@@ -464,6 +465,33 @@ class ClassificationPolicy(ProfileBase, Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
+class SourceEventSnapshot(Base):
+    __tablename__ = "source_event_snapshots"
+    id: Mapped[UuidPk]
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
+    source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id", ondelete="CASCADE"))
+    event_key: Mapped[str] = mapped_column(String(96))
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    cursor_message_id: Mapped[int] = mapped_column(BigInteger)
+    primary_message_id: Mapped[int] = mapped_column(BigInteger)
+    grouped_id: Mapped[int | None] = mapped_column(BigInteger)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    messages_json: Mapped[list] = mapped_column("messages", JSONB, default=list)
+    created_at: Mapped[CreatedAt]
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id",
+            "event_key",
+            name="source_event_snapshots_source_event_uq",
+        ),
+        Index(
+            "source_event_snapshots_cursor_idx",
+            "source_id",
+            "cursor_message_id",
+        ),
+    )
+
+
 class SourceRoute(Base):
     __tablename__ = "source_routes"
     id: Mapped[UuidPk]
@@ -566,6 +594,23 @@ class RouteFingerprint(Base):
     )
 
 
+class RoutePublishPayload(Base):
+    __tablename__ = "route_publish_payloads"
+    id: Mapped[UuidPk]
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
+    route_execution_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("route_executions.id", ondelete="CASCADE"), unique=True
+    )
+    content_type: Mapped[ContentType] = mapped_column(
+        pg_enum(ContentType, "content_type"), default=ContentType.UNKNOWN
+    )
+    normalized_text: Mapped[str | None] = mapped_column(Text)
+    rendered_text: Mapped[str | None] = mapped_column(Text)
+    media_json: Mapped[list] = mapped_column("media", JSONB, default=list)
+    created_at: Mapped[CreatedAt]
+    updated_at: Mapped[UpdatedAt]
+
+
 class ContentItem(Base):
     __tablename__ = "content_items"
     id: Mapped[UuidPk]
@@ -656,8 +701,14 @@ class PublishJob(Base):
     __tablename__ = "publish_jobs"
     id: Mapped[UuidPk]
     account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"))
-    content_item_id: Mapped[uuid.UUID] = mapped_column(
+    content_item_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("content_items.id", ondelete="RESTRICT")
+    )
+    route_execution_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("route_executions.id", ondelete="CASCADE")
+    )
+    route_payload_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("route_publish_payloads.id", ondelete="SET NULL")
     )
     destination_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("destinations.id", ondelete="CASCADE")
@@ -671,8 +722,10 @@ class PublishJob(Base):
     scheduled_for: Mapped[CreatedAt]
     priority: Mapped[int] = mapped_column(SmallInteger, default=100)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=5)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locked_by: Mapped[str | None] = mapped_column(String(255))
     last_error_code: Mapped[str | None] = mapped_column(String(120))
     last_error_message: Mapped[str | None] = mapped_column(Text)
@@ -682,8 +735,17 @@ class PublishJob(Base):
     updated_at: Mapped[UpdatedAt]
     __table_args__ = (
         UniqueConstraint("content_item_id", "destination_id"),
+        UniqueConstraint("route_execution_id", name="publish_jobs_route_execution_uq"),
         Index(
             "ix_publish_jobs_due", "destination_id", "priority", "scheduled_for", "next_attempt_at"
+        ),
+        Index(
+            "publish_jobs_v3_due_idx",
+            "account_id",
+            "status",
+            "scheduled_for",
+            "next_attempt_at",
+            "lease_expires_at",
         ),
     )
 

@@ -55,16 +55,32 @@ class RuntimeV3:
         if settings.telegram is not None and settings.ingestion is not None:
             from app.v3.content import ContentProcessingCoordinator
             from app.v3.deduplication import DeduplicationCoordinator
+            from app.v3.publish_queue import (
+                PublishQueueV3,
+                QueueReliabilityRecoveryComponent,
+            )
             from app.v3.telegram import TelegramIngestionComponent, TelethonUserAdapter
 
+            queue = PublishQueueV3(
+                database.session_factory,
+                settings.ingestion.account_id,
+            )
             deduplication = DeduplicationCoordinator(
                 database.session_factory,
                 settings.ingestion.account_id,
+                on_ready=queue.enqueue_result,
             )
             processor = ContentProcessingCoordinator(
                 database.session_factory,
                 settings.ingestion.account_id,
                 on_ready=deduplication.process,
+            )
+            components.append(
+                QueueReliabilityRecoveryComponent(
+                    processing=processor,
+                    deduplication=deduplication,
+                    queue=queue,
+                )
             )
             adapter = TelethonUserAdapter(
                 api_id=settings.telegram.api_id,

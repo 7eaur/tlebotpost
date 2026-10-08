@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
@@ -18,7 +18,7 @@ from app.db.models import (
     RouteFingerprint,
     SourceRoute,
 )
-from app.v3.content import ProcessingDecision, ProcessingResult
+from app.v3.content import ProcessingDecision, ProcessingResult, RoutePayloadStore
 from app.v3.domain import RouteExecutionService, SourceCheckpointCoordinator
 
 from .contracts import (
@@ -47,6 +47,7 @@ _MATCH_PRIORITY = (
     FingerprintType.MEDIA,
     FingerprintType.COMBINED,
 )
+ReadyForQueueHandler = Callable[[DeduplicationResult], Awaitable[object]]
 
 
 class DeduplicationError(RuntimeError):
@@ -122,11 +123,14 @@ class DeduplicationCoordinator:
         account_id: uuid.UUID,
         *,
         clock: Callable[[], datetime] | None = None,
+        on_ready: ReadyForQueueHandler | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.account_id = account_id
         self.clock = clock or (lambda: datetime.now(UTC))
         self.policies = DeduplicationPolicyResolver(account_id)
+        self.payloads = RoutePayloadStore()
+        self.on_ready = on_ready
         self._logger = logging.getLogger(__name__)
 
     async def process(self, result: ProcessingResult) -> DeduplicationResult:
@@ -134,13 +138,65 @@ class DeduplicationCoordinator:
             raise DeduplicationError("processing_result_not_ready_for_dedup")
 
         try:
-            return await self._process_ready(result)
+            outcome = await self._process_ready(result)
         except Exception:
             self._logger.exception(
                 "V3 deduplication failed: execution_id=%s",
                 result.execution_id,
             )
             return await self._mark_failed(result.execution_id)
+
+        if (
+            outcome.decision is DeduplicationDecision.READY_FOR_QUEUE
+            and self.on_ready is not None
+        ):
+            try:
+                await self.on_ready(outcome)
+            except Exception:
+                self._logger.exception(
+                    "V3 queue handoff deferred for recovery: execution_id=%s",
+                    outcome.execution_id,
+                )
+        return outcome
+
+    async def recover_pending(self, *, limit: int = 100) -> int:
+        if limit <= 0:
+            raise DeduplicationError("limit must be positive")
+        async with self.session_factory() as session:
+            executions = list(
+                (
+                    await session.scalars(
+                        select(RouteExecution)
+                        .where(
+                            RouteExecution.account_id == self.account_id,
+                            RouteExecution.status == RouteExecutionStatus.READY_FOR_DEDUP,
+                        )
+                        .order_by(RouteExecution.created_at, RouteExecution.id)
+                        .limit(limit)
+                    )
+                ).all()
+            )
+
+        recovered = 0
+        for execution in executions:
+            async with self.session_factory() as session:
+                payload = await self.payloads.get(
+                    session,
+                    account_id=self.account_id,
+                    execution_id=execution.id,
+                )
+            if payload is None:
+                await self._mark_failed(execution.id)
+                continue
+            processing_result = ProcessingResult(
+                execution_id=execution.id,
+                decision=ProcessingDecision.READY_FOR_DEDUP,
+                reason_code=execution.reason_code or "ready_for_dedup",
+                content=self.payloads.to_content(payload),
+            )
+            await self.process(processing_result)
+            recovered += 1
+        return recovered
 
     async def _process_ready(self, result: ProcessingResult) -> DeduplicationResult:
         observed_at = _as_utc(self.clock())
