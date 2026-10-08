@@ -125,6 +125,7 @@ __all__ = [
     "SourceCheckpointRepository",
     "SourceBinding",
     "SourceCheckpoint",
+    "SourceEventSnapshot",
     "SourceRoute",
     "SourceRouteRepository",
     "SourceRouteService",
