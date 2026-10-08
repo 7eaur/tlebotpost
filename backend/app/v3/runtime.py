@@ -64,6 +64,11 @@ class RuntimeV3:
             queue = PublishQueueV3(
                 database.session_factory,
                 settings.ingestion.account_id,
+                default_lease_seconds=(
+                    settings.publisher.lease_seconds
+                    if settings.publisher is not None
+                    else 120
+                ),
             )
             deduplication = DeduplicationCoordinator(
                 database.session_factory,
@@ -98,6 +103,42 @@ class RuntimeV3:
                     on_registration=processor.process_registration,
                 )
             )
+            if settings.publisher is not None:
+                from app.v3.publisher import (
+                    MediaStagerV3,
+                    PublisherWorkerComponent,
+                    PythonTelegramBotAdapter,
+                    TelegramPublisherV3,
+                )
+
+                bot = PythonTelegramBotAdapter(
+                    settings.publisher.bot_token,
+                    send_interval_seconds=settings.publisher.send_interval_seconds,
+                )
+                stager = MediaStagerV3(
+                    adapter,
+                    settings.publisher.staging_path,
+                    stale_after_seconds=settings.publisher.staging_stale_seconds,
+                )
+                publisher = TelegramPublisherV3(
+                    session_factory=database.session_factory,
+                    account_id=settings.ingestion.account_id,
+                    queue=queue,
+                    bot=bot,
+                    stager=stager,
+                )
+                components.append(
+                    PublisherWorkerComponent(
+                        queue=queue,
+                        publisher=publisher,
+                        bot=bot,
+                        stager=stager,
+                        worker_id=settings.publisher.worker_id,
+                        poll_interval_seconds=settings.publisher.poll_interval_seconds,
+                        batch_size=settings.publisher.queue_batch_size,
+                        lease_seconds=settings.publisher.lease_seconds,
+                    )
+                )
         return cls(
             database=database,
             settings=settings,
