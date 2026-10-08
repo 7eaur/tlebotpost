@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
@@ -14,6 +15,7 @@ from app.db.models import (
     Destination,
     JobStatus,
     PublicationAttempt,
+    PublishedMessage,
     PublishingMode,
     PublishJob,
     RouteExecution,
@@ -362,6 +364,77 @@ class PublishQueueV3:
                 await session.flush()
                 return job.lease_expires_at
 
+    async def mark_publishing(
+        self,
+        job_id: uuid.UUID,
+        *,
+        worker_id: str,
+        now: datetime | None = None,
+        lease_seconds: int | None = None,
+    ) -> None:
+        current = _utc(now)
+        worker = _worker_id(worker_id)
+        lease = lease_seconds or self.default_lease_seconds
+        if lease <= 0:
+            raise QueueError("lease_seconds must be positive")
+        async with self.session_factory() as session:
+            async with session.begin():
+                job = await self._owned_claim(session, job_id, worker)
+                if job.status is JobStatus.PUBLISHING:
+                    return
+                if job.status is not JobStatus.PROCESSING:
+                    raise QueueError("publish_job_not_processing")
+                job.status = JobStatus.PUBLISHING
+                job.lease_expires_at = current + timedelta(seconds=lease)
+                await session.flush()
+
+    async def mark_published(
+        self,
+        job_id: uuid.UUID,
+        *,
+        worker_id: str,
+        telegram_message_ids: Sequence[int],
+        latency_ms: int,
+        now: datetime | None = None,
+    ) -> None:
+        current = _utc(now)
+        worker = _worker_id(worker_id)
+        message_ids = _telegram_message_ids(telegram_message_ids)
+        if latency_ms < 0:
+            raise QueueError("latency_ms must be non-negative")
+        async with self.session_factory() as session:
+            async with session.begin():
+                job = await self._owned_claim(session, job_id, worker)
+                await self._record_published_message(
+                    session,
+                    job,
+                    message_ids,
+                    published_at=current,
+                    partial=False,
+                )
+                job.status = JobStatus.PUBLISHED
+                job.published_at = current
+                job.next_attempt_at = None
+                job.last_error_code = None
+                job.last_error_message = None
+                self._clear_lease(job)
+                await self._succeed_attempt(
+                    session,
+                    job,
+                    telegram_message_id=message_ids[0],
+                    latency_ms=latency_ms,
+                    finished_at=current,
+                )
+                if job.route_execution_id is not None:
+                    service = RouteExecutionService(session, self.account_id)
+                    execution = await service.executions.get(job.route_execution_id)
+                    if execution is not None and execution.status is RouteExecutionStatus.QUEUED:
+                        await service.transition(
+                            execution.id,
+                            RouteExecutionStatus.PUBLISHED,
+                            reason_code="publish_succeeded",
+                        )
+
     async def mark_retry(
         self,
         job_id: uuid.UUID,
@@ -416,12 +489,21 @@ class PublishQueueV3:
         error_code: str,
         error_message: str,
         now: datetime | None = None,
+        telegram_message_ids: Sequence[int] = (),
     ) -> None:
         current = _utc(now)
         worker = _worker_id(worker_id)
         async with self.session_factory() as session:
             async with session.begin():
                 job = await self._owned_claim(session, job_id, worker)
+                if telegram_message_ids:
+                    await self._record_published_message(
+                        session,
+                        job,
+                        _telegram_message_ids(telegram_message_ids),
+                        published_at=current,
+                        partial=True,
+                    )
                 await self._fail_locked_job(
                     session,
                     job,
@@ -462,6 +544,18 @@ class PublishQueueV3:
                     ).all()
                 )
                 for job in jobs:
+                    if job.status is JobStatus.PUBLISHING:
+                        await self._fail_locked_job(
+                            session,
+                            job,
+                            error_code="publish_outcome_unknown",
+                            error_message=(
+                                "publisher lease expired after external publishing began; "
+                                "automatic retry is disabled to avoid duplicate target posts"
+                            ),
+                            current=current,
+                        )
+                        continue
                     if job.attempt_count >= job.max_attempts:
                         await self._fail_locked_job(
                             session,
@@ -575,6 +669,64 @@ class PublishQueueV3:
                     reason_code=_error_code(error_code),
                 )
 
+    async def _record_published_message(
+        self,
+        session: AsyncSession,
+        job: PublishJob,
+        message_ids: tuple[int, ...],
+        *,
+        published_at: datetime,
+        partial: bool,
+    ) -> PublishedMessage:
+        existing = await session.scalar(
+            select(PublishedMessage).where(PublishedMessage.publish_job_id == job.id)
+        )
+        metadata = {
+            "message_ids": list(message_ids),
+            "message_count": len(message_ids),
+            "partial": partial,
+            "v3": True,
+        }
+        if existing is not None:
+            existing.telegram_message_id = message_ids[0]
+            existing.published_at = published_at
+            existing.metadata_json = metadata
+            return existing
+        record = PublishedMessage(
+            publish_job_id=job.id,
+            destination_id=job.destination_id,
+            telegram_message_id=message_ids[0],
+            published_at=published_at,
+            metadata_json=metadata,
+        )
+        session.add(record)
+        await session.flush()
+        return record
+
+    @staticmethod
+    async def _succeed_attempt(
+        session: AsyncSession,
+        job: PublishJob,
+        *,
+        telegram_message_id: int,
+        latency_ms: int,
+        finished_at: datetime,
+    ) -> None:
+        attempt = await session.scalar(
+            select(PublicationAttempt).where(
+                PublicationAttempt.publish_job_id == job.id,
+                PublicationAttempt.attempt_number == job.attempt_count,
+            )
+        )
+        if attempt is None:
+            raise QueueError("publication_attempt_missing")
+        attempt.status = AttemptStatus.SUCCEEDED
+        attempt.telegram_message_id = telegram_message_id
+        attempt.error_code = None
+        attempt.error_message = None
+        attempt.finished_at = finished_at
+        attempt.latency_ms = latency_ms
+
     @staticmethod
     def _clear_lease(job: PublishJob) -> None:
         job.locked_at = None
@@ -667,3 +819,12 @@ def _utc(value: datetime | None) -> datetime:
     if current.tzinfo is None:
         raise QueueError("queue_time_must_be_timezone_aware")
     return current.astimezone(UTC)
+
+
+def _telegram_message_ids(values: Sequence[int]) -> tuple[int, ...]:
+    result = tuple(int(value) for value in values)
+    if not result or any(value <= 0 for value in result):
+        raise QueueError("telegram_message_ids must contain positive values")
+    if len(set(result)) != len(result):
+        raise QueueError("telegram_message_ids must be unique")
+    return result
