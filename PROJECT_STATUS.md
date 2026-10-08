@@ -6,7 +6,7 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 7 — Publisher and Media Lifecycle
+Phase 8 — Control Bot V3
 
 Status: COMPLETE / VERIFIED IN CI  
 Real Telegram sandbox proof: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE  
@@ -19,7 +19,7 @@ External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILA
 - Runtime V2 remains the production reference.
 - The current production Telegram session/volume was deliberately not moved or shared with V3.
 - The known V2 false-deduplication defect remains isolated from the rebuild path.
-- V3 Phases 4-7 were verified only in CI/disposable PostgreSQL/fake Telegram adapters; no production migration or V3 Telegram target publish was run.
+- V3 Phases 4-8 were verified only in CI/disposable PostgreSQL/fake Telegram adapters; no production migration or V3 Telegram target publish was run.
 
 ## Completed rebuild phases
 
@@ -695,6 +695,144 @@ The Bot API/user-session behavior is verified with fake adapters plus PostgreSQL
 
 No Railway deployment, production session, production PostgreSQL migration or target-channel publishing was performed.
 
+## Phase 8 delivered
+
+### PostgreSQL-backed control plane
+
+Added `ControlServiceV3` as the application-layer source of truth for operator actions.
+
+The Telegram control bot is intentionally thin and does not own business rules.
+
+Supported control operations:
+- runtime/system status;
+- project listing and pause/resume;
+- source listing/add/enable/disable;
+- destination listing/add/enable/disable;
+- route listing/add/enable/disable;
+- manual PublishJob release;
+- explicit safe ingestion reload.
+
+### Owner-only Telegram surface
+
+`ControlBotV3` accepts commands only when:
+- Telegram user id matches the configured owner;
+- the command arrives in a private chat.
+
+Unauthorized users do not reach control services.
+
+### Live-only source add contract
+
+Adding a source resolves the Telegram chat through the authorized user session and captures the current newest Telegram message id.
+
+That id is persisted as the SourceCheckpoint `last_seen_message_id` before runtime reload.
+
+Therefore adding a source through the control bot does not replay historical messages.
+
+### Shared chat resolver
+
+Telegram reference parsing/resolution was moved into a shared `app.telegram.chat_resolver` helper.
+
+Both legacy control code and V3 use the same resolution behavior for:
+- @username;
+- t.me links;
+- invite links;
+- numeric/internal chat references.
+
+V3 resolves chats through the already-connected Telethon user adapter.
+
+### Safe reload
+
+Configuration mutations commit to PostgreSQL first, then call `TelegramIngestionComponent.reload(rebaseline=False)`.
+
+Reload:
+- temporarily stops acceptance;
+- flushes pending albums;
+- replaces subscriptions;
+- reloads SourceCheckpoint seen floors;
+- does not replay Telegram history.
+
+If persistence succeeds but reload fails, the owner receives a distinct `configuration_saved_runtime_reload_failed` result and can explicitly run `/reload`.
+
+### Project-level pause/run
+
+Global operator pause/run is represented by Project status instead of mass-changing every route.
+
+This avoids accidentally reactivating a SourceRoute that was intentionally paused on its own.
+
+### Control commands
+
+Implemented:
+- `/status`, `/health`;
+- `/projects`, `/sources`, `/destinations`, `/routes`;
+- `/addsource`;
+- `/source_on`, `/source_off`;
+- `/adddestination`;
+- `/destination_on`, `/destination_off`;
+- `/addroute`;
+- `/route_on`, `/route_off`;
+- `/run`, `/pause`;
+- `/release`;
+- `/reload`.
+
+### Runtime enablement
+
+Control is explicitly opt-in:
+
+```text
+V3_CONTROL_ENABLED=true
+```
+
+Owner identity comes from:
+- `V3_CONTROL_OWNER_ID`, or existing `OWNER_ID` fallback.
+
+Bot token comes from:
+- `V3_CONTROL_BOT_TOKEN`, or existing `BOT_TOKEN` fallback.
+
+When V3 control is enabled, the Telegram user-session/ingestion group is also enabled because source resolution and safe runtime reload depend on it.
+
+## Phase 8 verification evidence
+
+Verified code head:
+
+`4c8229ad5f9372ec277841f0c295b5922ebd000a`
+
+GitHub Actions:
+
+- Run ID: `37860895897`
+- Conclusion: `success`
+
+Passed:
+- focused V3 phase-contract tests: 58 passed;
+- full non-integration suite: 136 passed, 29 deselected;
+- Ruff: all checks passed;
+- compileall;
+- PostgreSQL 16 V2-reference schema bootstrap;
+- Alembic upgrade/downgrade/re-upgrade through `20261008_04`;
+- PostgreSQL V3 integration through control plane: 28 passed;
+- V3 CLI;
+- Docker build.
+
+Phase 8 integration evidence covers:
+- current-baseline source creation;
+- destination creation in the active project;
+- source-to-destination route creation;
+- project pause/resume;
+- source/destination/route pause/resume;
+- safe reload callback after every runtime-affecting mutation;
+- manual PublishJob release;
+- queue/system status;
+- owner-only/private-chat authorization.
+
+## Phase 8 boundary
+
+Phase 8 does not:
+- perform Telegram account login/OTP flows through the control bot;
+- expose secrets/session material;
+- deploy V3 to production;
+- replace the real V2 control bot yet.
+
+V3 account authorization remains an operator/bootstrap concern until migration/cutover. Normal post-bootstrap operation no longer requires manual database edits.
+
 ## External Telegram pilot
 
 Not executed for V3 yet.
@@ -713,23 +851,21 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `docs/v3-phase5-deduplication.md`
 - `docs/v3-phase6-publish-queue-reliability.md`
 - `docs/v3-phase7-publisher-media-lifecycle.md`
+- `docs/v3-phase8-control-bot.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
 ## Next phase
 
-Phase 8 — Control Bot V3
+Phase 9 — Observability and Operations
 
 Required work:
-- owner authorization;
-- runtime/system status;
-- source management;
-- destination management;
-- route management;
-- pause/resume controls;
-- health and last-error visibility;
-- manual-job release where appropriate;
-- safe runtime reload after configuration changes;
-- PostgreSQL integration proving normal operation without manual DB edits.
+- structured secret-safe logging;
+- account/job/route counters;
+- startup readiness notification;
+- operator diagnostics from IDs/reason codes without message bodies;
+- failed-job diagnosis;
+- backup/restore and operational runbook;
+- tests proving logs/diagnostics do not expose configured secrets or content.
 
 Real Telegram V3 E2E remains deferred until an isolated authorized V3 session exists.

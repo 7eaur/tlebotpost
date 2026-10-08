@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-7 complete in CI; Phase 8 next (real Telegram V3 pilot deferred until isolated session)
+Status: Phases 0-8 complete in CI; Phase 9 next (real Telegram V3 pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -251,9 +251,23 @@ CI gate: PASSED in GitHub Actions Run `37848919833` at code head `1c2c7f7c63e846
 
 Verified in CI/PostgreSQL with fake Telegram adapters. Real Telegram sandbox E2E is intentionally deferred until an isolated authorized V3 session is available, so Phase 11 remains the formal real-world E2E gate.
 
-### Phase 8 — Control Bot V3
-Owner authorization, status, source/destination/route management, pause/resume, health/last-error and safe runtime reload.
-Gate: normal operation needs no manual DB edits.
+### Phase 8 — Control Bot V3 — COMPLETE / VERIFIED IN CI
+Implemented:
+- PostgreSQL-backed ControlServiceV3;
+- owner-only private Telegram command surface;
+- project/source/destination/route listing and status controls;
+- source add with current Telegram baseline;
+- destination and SourceRoute creation;
+- Project-level pause/run;
+- manual PublishJob release;
+- safe ingestion reload without historical replay;
+- shared Telegram reference resolver;
+- account/queue/last-error status output;
+- explicit opt-in control runtime configuration.
+
+Gate: PASSED in GitHub Actions Run `37860895897` at code head `4c8229ad5f9372ec277841f0c295b5922ebd000a`.
+
+Normal post-bootstrap source/destination/route operation is now possible without manual PostgreSQL edits.
 
 ### Phase 9 — Observability and operations
 Structured logs, reason codes, counters, startup readiness notification, secret-safe logging, backup/restore docs.
@@ -296,8 +310,8 @@ Completed:
 8. build durable queue handoff, leases, retries and crash recovery.
 
 Next:
-1. implement Phase 8 Control Bot V3;
-2. continue through observability and operations;
+1. implement Phase 9 observability and operations;
+2. prepare the one-time migration tooling;
 3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
 4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 
