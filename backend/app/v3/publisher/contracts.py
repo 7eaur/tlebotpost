@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from collections.abc import Sequence
 from typing import Protocol
 
 TELEGRAM_TEXT_LIMIT = 4096
