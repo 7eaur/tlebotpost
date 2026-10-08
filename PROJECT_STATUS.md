@@ -6,9 +6,10 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 6 — Publish Queue and Reliability
+Phase 7 — Publisher and Media Lifecycle
 
 Status: COMPLETE / VERIFIED IN CI  
+Real Telegram sandbox proof: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE  
 External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE
 
 ## Production state
@@ -18,7 +19,7 @@ External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILA
 - Runtime V2 remains the production reference.
 - The current production Telegram session/volume was deliberately not moved or shared with V3.
 - The known V2 false-deduplication defect remains isolated from the rebuild path.
-- V3 Phases 4-6 were verified only in CI/disposable PostgreSQL; no production migration was run.
+- V3 Phases 4-7 were verified only in CI/disposable PostgreSQL/fake Telegram adapters; no production migration or V3 Telegram target publish was run.
 
 ## Completed rebuild phases
 
@@ -551,6 +552,149 @@ Phase 6 does not:
 
 Those are Phase 7 responsibilities.
 
+## Phase 7 delivered
+
+### V3 publisher worker
+
+Added a dedicated V3 publisher component that:
+- claims only V3 PublishJobs;
+- loads the durable RoutePublishPayload;
+- publishes through the Telegram Bot API;
+- records successful publication state;
+- integrates with the existing lease/retry contract.
+
+The publisher remains opt-in through `V3_PUBLISHER_ENABLED`.
+
+### Shared authorized user session
+
+Media acquisition reuses the same connected `TelethonUserAdapter` instance used by V3 ingestion.
+
+No second Telegram user session is opened.
+
+Media is fetched by exact source `chat_id + message_id`; this is targeted acquisition for already-accepted events and is not history replay.
+
+### Supported publishing shapes
+
+Implemented:
+- text;
+- photo;
+- video;
+- document;
+- audio;
+- voice;
+- photo/video albums;
+- document-only albums;
+- audio-only albums.
+
+Albums remain one PublishJob and one logical RouteExecution.
+
+### Telegram text and caption limits
+
+Plain text is split deterministically at Telegram's message limit without truncating content.
+
+For media:
+- rendered text within the caption limit is sent as the media caption;
+- longer rendered text publishes the media without caption and sends the complete text afterward in safe chunks.
+
+### Transient media lifecycle
+
+Media bytes are downloaded into attempt-scoped temporary staging directories.
+
+On completion or failure:
+- attempt staging is removed;
+- stale managed staging directories are cleaned at publisher startup.
+
+No media bytes are committed to Git or PostgreSQL.
+
+### Published-message durability
+
+Successful jobs persist a `PublishedMessage`.
+
+Metadata records:
+- every Telegram target message id;
+- message count;
+- partial/success state;
+- V3 marker.
+
+`PublicationAttempt` is completed as succeeded and `RouteExecution` moves to `published`.
+
+### Error and retry behavior
+
+Implemented explicit classification for:
+- RetryAfter;
+- timeout/network failures;
+- Forbidden;
+- BadRequest;
+- generic Telegram errors;
+- media acquisition failures.
+
+RetryAfter can safely schedule a retry when no target message was confirmed.
+
+### Partial/unknown publish safety
+
+Telegram Bot API has no idempotency key.
+
+V3 therefore does not claim false exactly-once semantics.
+
+If at least one target message was confirmed before a later send failed:
+- the confirmed ids are persisted;
+- the job fails closed;
+- V3 does not automatically replay the entire post.
+
+If a worker lease expires after the job entered `publishing` and the external result is unknown:
+- the job fails with `publish_outcome_unknown`;
+- automatic retry is disabled to avoid duplicate target posts.
+
+A lease expiry while still in pre-send `processing` remains safely retryable under Phase 6.
+
+### Runtime integration
+
+When `V3_PUBLISHER_ENABLED=true`, Runtime V3 wires:
+1. queue recovery;
+2. Telegram ingestion/user-session connection;
+3. publisher worker using that same user adapter for media acquisition.
+
+Publisher configuration is separate from ingestion configuration and requires `BOT_TOKEN`.
+
+## Phase 7 verification evidence
+
+Verified code head:
+
+`1c2c7f7c63e8461bc65dc3a8113122e5075cb552`
+
+GitHub Actions:
+
+- Run ID: `37848919833`
+- Conclusion: `success`
+
+Passed:
+- focused V3 phase-contract tests: 51 passed;
+- full non-integration suite: 129 passed, 27 deselected;
+- Ruff: all checks passed;
+- compileall;
+- PostgreSQL 16 V2-reference schema bootstrap;
+- Alembic upgrade/downgrade/re-upgrade through `20261008_04`;
+- PostgreSQL V3 integration through publisher: 26 passed;
+- V3 CLI;
+- Docker build.
+
+Phase 7 integration evidence covers:
+- text publication and durable PublishedMessage state;
+- long media-caption fallback without content truncation;
+- media staging and cleanup;
+- album as one logical queue job;
+- RetryAfter retry state;
+- partial-publish fail-closed behavior;
+- expired `publishing` lease -> `publish_outcome_unknown` instead of replay.
+
+## Phase 7 boundary
+
+Phase 7 does not claim real Telegram E2E proof.
+
+The Bot API/user-session behavior is verified with fake adapters plus PostgreSQL integration, while the real authorized V3 sandbox session remains unavailable.
+
+No Railway deployment, production session, production PostgreSQL migration or target-channel publishing was performed.
+
 ## External Telegram pilot
 
 Not executed for V3 yet.
@@ -568,25 +712,24 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `docs/v3-phase4-content-processing.md`
 - `docs/v3-phase5-deduplication.md`
 - `docs/v3-phase6-publish-queue-reliability.md`
+- `docs/v3-phase7-publisher-media-lifecycle.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
 ## Next phase
 
-Phase 7 — Publisher and Media Lifecycle
+Phase 8 — Control Bot V3
 
 Required work:
-- V3 worker loop over leased PublishJobs;
-- durable route-payload loading;
-- Bot API publishing for text;
-- media acquisition/staging through the authorized user session;
-- photo/video/document/audio/voice publishing;
-- album semantics as one logical job;
-- caption/text limits and deterministic fallback;
-- Telegram error classification;
-- queue retry/failure integration;
-- published-message durability;
-- media cleanup/expiry;
-- isolated real-Telegram sandbox evidence for supported types.
+- owner authorization;
+- runtime/system status;
+- source management;
+- destination management;
+- route management;
+- pause/resume controls;
+- health and last-error visibility;
+- manual-job release where appropriate;
+- safe runtime reload after configuration changes;
+- PostgreSQL integration proving normal operation without manual DB edits.
 
-Production Railway remains unchanged until the formal pilot/cutover phases.
+Real Telegram V3 E2E remains deferred until an isolated authorized V3 session exists.

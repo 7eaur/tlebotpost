@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-6 complete; Phase 7 next (external V3 Telegram pilot deferred until isolated session)
+Status: Phases 0-7 complete in CI; Phase 8 next (real Telegram V3 pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -231,9 +231,25 @@ Boundary:
 - no real Telegram target proof;
 - no production migration/cutover.
 
-### Phase 7 — Publisher and media lifecycle
-Text, photo, video, document, audio, voice, albums, staging/cleanup, caption limits and Telegram error mapping.
-Gate: real Telegram pilot publishes every supported type.
+### Phase 7 — Publisher and media lifecycle — COMPLETE / VERIFIED IN CI
+Implemented:
+- V3 publisher worker over leased PublishJobs;
+- durable RoutePublishPayload loading;
+- Bot API text publishing;
+- targeted source-media acquisition through the same Telethon user adapter as ingestion;
+- transient attempt-scoped media staging and cleanup;
+- photo/video/document/audio/voice publishing;
+- supported Telegram album families as one logical job;
+- deterministic text splitting and caption fallback without truncation;
+- Telegram RetryAfter/network/permanent-error classification;
+- durable PublishedMessage + PublicationAttempt completion;
+- partial-publish fail-closed behavior;
+- unknown external publish outcome protection against automatic duplicate replay;
+- opt-in V3 publisher runtime settings.
+
+CI gate: PASSED in GitHub Actions Run `37848919833` at code head `1c2c7f7c63e8461bc65dc3a8113122e5075cb552`.
+
+Verified in CI/PostgreSQL with fake Telegram adapters. Real Telegram sandbox E2E is intentionally deferred until an isolated authorized V3 session is available, so Phase 11 remains the formal real-world E2E gate.
 
 ### Phase 8 — Control Bot V3
 Owner authorization, status, source/destination/route management, pause/resume, health/last-error and safe runtime reload.
@@ -280,8 +296,8 @@ Completed:
 8. build durable queue handoff, leases, retries and crash recovery.
 
 Next:
-1. implement Phase 7 publisher and media lifecycle;
-2. continue through Control Bot V3 and observability;
+1. implement Phase 8 Control Bot V3;
+2. continue through observability and operations;
 3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
 4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 
