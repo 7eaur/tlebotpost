@@ -161,7 +161,7 @@ async def test_control_service_manages_source_destination_route_and_project_with
         route_on = await service.set_route_active(str(route.id), active=True)
         assert route_on.status == "active"
 
-        assert len(reloads) == 9
+        assert len(reloads) == 11
 
         projects = await service.list_projects()
         sources = await service.list_sources()
