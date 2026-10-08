@@ -1,6 +1,11 @@
 """Telegram ingestion adapter layer for V3."""
 
-from .adapter import TelegramUserAdapter, TelethonUserAdapter
+from .adapter import (
+    TelegramMediaUnavailable,
+    TelegramMessageUnavailable,
+    TelegramUserAdapter,
+    TelethonUserAdapter,
+)
 from .albums import AlbumCollectorV3
 from .ingestion import IngestionSource, TelegramIngestionComponent
 from .snapshots import SourceEventSnapshotError, SourceEventSnapshotStore
@@ -15,6 +20,8 @@ __all__ = [
     "SourceMediaSnapshot",
     "SourceMessageSnapshot",
     "TelegramIngestionComponent",
+    "TelegramMediaUnavailable",
+    "TelegramMessageUnavailable",
     "TelegramUserAdapter",
     "TelethonUserAdapter",
 ]
