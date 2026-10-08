@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -375,8 +375,29 @@ class SourceCheckpointCoordinator:
                 last_event_at=event_at,
             )
             self.session.add(checkpoint)
-        if cursor_message_id > checkpoint.last_committed_message_id:
-            checkpoint.last_committed_message_id = cursor_message_id
+        first_blocking_cursor = await self.session.scalar(
+            select(func.min(RouteExecution.cursor_message_id)).where(
+                RouteExecution.account_id == self.account_id,
+                RouteExecution.source_id == source_id,
+                RouteExecution.cursor_message_id > checkpoint.last_committed_message_id,
+                RouteExecution.status.not_in(tuple(CHECKPOINT_SAFE_STATUSES)),
+            )
+        )
+        target_statement = select(func.max(RouteExecution.cursor_message_id)).where(
+            RouteExecution.account_id == self.account_id,
+            RouteExecution.source_id == source_id,
+            RouteExecution.cursor_message_id > checkpoint.last_committed_message_id,
+        )
+        if first_blocking_cursor is not None:
+            target_statement = target_statement.where(
+                RouteExecution.cursor_message_id < first_blocking_cursor
+            )
+        highest_safe_cursor = await self.session.scalar(target_statement)
+        if (
+            highest_safe_cursor is not None
+            and highest_safe_cursor > checkpoint.last_committed_message_id
+        ):
+            checkpoint.last_committed_message_id = highest_safe_cursor
             checkpoint.last_event_at = event_at
         await self.session.flush()
         return True
