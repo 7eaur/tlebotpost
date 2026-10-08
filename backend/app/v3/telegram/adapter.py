@@ -13,6 +13,14 @@ from app.telegram.session import TelegramSession
 RawEventCallback = Callable[[Any], Awaitable[None]]
 
 
+class TelegramMessageUnavailable(RuntimeError):
+    """Raised when an accepted source message can no longer be fetched."""
+
+
+class TelegramMediaUnavailable(RuntimeError):
+    """Raised when an accepted source message no longer has downloadable media."""
+
+
 class TelegramUserAdapter(Protocol):
     @property
     def is_connected(self) -> bool: ...
@@ -22,6 +30,52 @@ class TelegramUserAdapter(Protocol):
     async def disconnect(self) -> None: ...
 
     async def latest_message_id(self, chat_id: int) -> int: ...
+
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        destination_dir: str | Path,
+    ) -> Path: ...
+
+    async def download_message_media(
+        self,
+        chat_id: int,
+        message_id: int,
+        destination_dir: str | Path,
+    ) -> Path:
+        if message_id <= 0:
+            raise ValueError("message_id must be positive")
+        client = self._require_client()
+        entity = await client.get_entity(chat_id)
+        message = await client.get_messages(entity, ids=message_id)
+        if isinstance(message, Sequence) and not isinstance(message, (str, bytes)):
+            message = next(
+                (item for item in message if int(getattr(item, "id", 0) or 0) == message_id),
+                None,
+            )
+        if message is None:
+            raise TelegramMessageUnavailable(
+                f"source message is unavailable: chat_id={chat_id} message_id={message_id}"
+            )
+        if getattr(message, "media", None) is None:
+            raise TelegramMediaUnavailable(
+                f"source message has no media: chat_id={chat_id} message_id={message_id}"
+            )
+
+        directory = Path(destination_dir)
+        directory.mkdir(parents=True, exist_ok=True)
+        downloaded = await client.download_media(message, file=str(directory))
+        if not downloaded:
+            raise TelegramMediaUnavailable(
+                f"source media could not be downloaded: chat_id={chat_id} message_id={message_id}"
+            )
+        path = Path(downloaded)
+        if not path.exists() or not path.is_file():
+            raise TelegramMediaUnavailable(
+                f"source media download path is unavailable: message_id={message_id}"
+            )
+        return path
 
     async def subscribe(self, chat_id: int, callback: RawEventCallback) -> Any: ...
 
