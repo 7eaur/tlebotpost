@@ -11,7 +11,14 @@ from typing import TypeVar
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from telegram.error import (\n    BadRequest,\n    Forbidden,\n    NetworkError,\n    RetryAfter,\n    TelegramError,\n    TimedOut,\n)
+from telegram.error import (
+    BadRequest,
+    Forbidden,
+    NetworkError,
+    RetryAfter,
+    TelegramError,
+    TimedOut,
+)
 
 from app.db.models import (
     Destination,
