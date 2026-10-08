@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-8 complete in CI; Phase 9 next (real Telegram V3 pilot deferred until isolated session)
+Status: Phases 0-9 complete in CI; Phase 10 next (real Telegram V3 pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -269,9 +269,22 @@ Gate: PASSED in GitHub Actions Run `37860895897` at code head `4c8229ad5f9372ec2
 
 Normal post-bootstrap source/destination/route operation is now possible without manual PostgreSQL edits.
 
-### Phase 9 — Observability and operations
-Structured logs, reason codes, counters, startup readiness notification, secret-safe logging, backup/restore docs.
-Gate: a failed post can be diagnosed from IDs and reason codes without logging content.
+### Phase 9 — Observability and operations — COMPLETE / VERIFIED IN CI
+Implemented:
+- secret-safe JSON/text V3 logging;
+- configured credential redaction;
+- fixed allow-listed log output shape;
+- account-scoped queue/execution/attempt/system-event metrics;
+- content-free PublishJob diagnostics;
+- /metrics and /job owner commands;
+- safe SystemEvent detail validation;
+- runtime_ready/runtime_stopping lifecycle events;
+- best-effort owner startup readiness notification;
+- PostgreSQL/session backup and restore runbook.
+
+Gate: PASSED in GitHub Actions Run `37861627737` at code head `f3f11a1986b1d6d9713f9705a87db7c7e5673a89`.
+
+The regression suite seeds sensitive message/error text in PostgreSQL and proves it is absent from operator job diagnostics. Structured-log tests prove configured tokens/passwords are redacted and arbitrary LogRecord extras are not serialized.
 
 ### Phase 10 — Migration
 One-time V1/V2 migration with dry-run, data mapping, count verification and Telegram session preservation.
@@ -310,8 +323,8 @@ Completed:
 8. build durable queue handoff, leases, retries and crash recovery.
 
 Next:
-1. implement Phase 9 observability and operations;
-2. prepare the one-time migration tooling;
+1. implement Phase 10 one-time migration tooling with dry-run/count verification;
+2. validate migration against an isolated production-like copy;
 3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
 4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
 

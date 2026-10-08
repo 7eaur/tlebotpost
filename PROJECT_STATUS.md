@@ -6,7 +6,7 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 8 — Control Bot V3
+Phase 9 — Observability and Operations
 
 Status: COMPLETE / VERIFIED IN CI  
 Real Telegram sandbox proof: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE  
@@ -19,7 +19,7 @@ External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILA
 - Runtime V2 remains the production reference.
 - The current production Telegram session/volume was deliberately not moved or shared with V3.
 - The known V2 false-deduplication defect remains isolated from the rebuild path.
-- V3 Phases 4-8 were verified only in CI/disposable PostgreSQL/fake Telegram adapters; no production migration or V3 Telegram target publish was run.
+- V3 Phases 4-9 were verified only in CI/disposable PostgreSQL/fake Telegram adapters; no production migration or V3 Telegram target publish was run.
 
 ## Completed rebuild phases
 
@@ -833,6 +833,133 @@ Phase 8 does not:
 
 V3 account authorization remains an operator/bootstrap concern until migration/cutover. Normal post-bootstrap operation no longer requires manual database edits.
 
+## Phase 9 delivered
+
+### Secret-safe structured logging
+
+V3 runtime logging now uses a dedicated safe formatter.
+
+Default:
+
+`V3_LOG_FORMAT=json`
+
+Optional:
+
+`V3_LOG_FORMAT=text`
+
+The JSON formatter emits only:
+- UTC timestamp;
+- level;
+- logger name;
+- rendered log message;
+- exception type/message when present.
+
+It does not serialize arbitrary LogRecord extras or full traceback objects.
+
+Configured sensitive values are redacted before output, including:
+- database connection URL/password;
+- Telegram API hash;
+- publisher bot token;
+- control bot token.
+
+### Content-free diagnostics
+
+Added `ObservabilityServiceV3`.
+
+`diagnose_job()` reads only:
+- PublishJob ids/status/times/reason code;
+- RouteExecution id/status/reason code;
+- destination/source-route ids;
+- attempt status/error codes/message ids/latency;
+- PublishedMessage Telegram ids.
+
+It deliberately does not load or return RoutePublishPayload text/captions or stored error messages.
+
+### Metrics
+
+Added account-scoped counters for:
+- V3 PublishJobs grouped by status;
+- RouteExecutions grouped by status;
+- publication-attempt total;
+- SystemEvent total.
+
+Control Bot commands:
+- `/metrics`;
+- `/job JOB_UUID`.
+
+### Safe SystemEvent details
+
+Operational events may contain primitive IDs/counts/status values only.
+
+Detail keys suggesting credentials, sessions or content are rejected, including token/secret/password/api_hash/session/content/caption/message text fields.
+
+Nested arbitrary payloads are also rejected.
+
+### Runtime lifecycle events
+
+An observability component records:
+- `runtime_ready`;
+- `runtime_stopping`.
+
+Runtime-ready hooks run only after all components have started.
+
+Hook failure is best-effort and does not turn a healthy runtime into a failed runtime.
+
+### Owner readiness notification
+
+When V3 Control Bot is enabled, the owner receives a content-free readiness summary after runtime startup with:
+- state;
+- database readiness;
+- component count;
+- source/route counts;
+- pending/failed queue counts.
+
+### Operations runbook
+
+Added `docs/v3-operations-runbook.md` covering:
+- status/metrics/job diagnosis;
+- reason-code-first troubleshooting;
+- PostgreSQL logical backup/restore;
+- Telegram session backup safety;
+- restore validation in an isolated environment;
+- production/cutover constraints.
+
+## Phase 9 verification evidence
+
+Verified code head:
+
+`f3f11a1986b1d6d9713f9705a87db7c7e5673a89`
+
+GitHub Actions:
+
+- Run ID: `37861627737`
+- Conclusion: `success`
+
+Passed:
+- focused V3 phase-contract tests: 63 passed;
+- full non-integration suite: 141 passed, 30 deselected;
+- Ruff: all checks passed;
+- compileall;
+- PostgreSQL V2-reference schema bootstrap;
+- Alembic upgrade/downgrade/re-upgrade through `20261008_04`;
+- PostgreSQL V3 integration through observability: 29 passed;
+- V3 CLI;
+- Docker build.
+
+Security regression evidence includes:
+- configured secrets redacted from structured log message/exception;
+- arbitrary LogRecord extras are not serialized;
+- diagnostic output excludes seeded sensitive message/error bodies;
+- unsafe SystemEvent detail keys/values are rejected.
+
+## Phase 9 boundary
+
+Phase 9 does not ship external log aggregation or telemetry SaaS.
+
+PostgreSQL SystemEvent + structured stdout/stderr + owner diagnostics are the current operational foundation.
+
+No production backup, restore, Railway deployment or session copy was performed during this phase.
+
 ## External Telegram pilot
 
 Not executed for V3 yet.
@@ -852,20 +979,24 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `docs/v3-phase6-publish-queue-reliability.md`
 - `docs/v3-phase7-publisher-media-lifecycle.md`
 - `docs/v3-phase8-control-bot.md`
+- `docs/v3-phase9-observability-operations.md`
+- `docs/v3-operations-runbook.md`
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
 ## Next phase
 
-Phase 9 — Observability and Operations
+Phase 10 — Migration
 
 Required work:
-- structured secret-safe logging;
-- account/job/route counters;
-- startup readiness notification;
-- operator diagnostics from IDs/reason codes without message bodies;
-- failed-job diagnosis;
-- backup/restore and operational runbook;
-- tests proving logs/diagnostics do not expose configured secrets or content.
+- explicit one-time V1/V2 -> V3 migration command/tooling;
+- dry-run first;
+- account/project/Telegram/source/destination/route mapping;
+- profile/state mapping where applicable;
+- count and invariant verification;
+- no automatic import at normal V3 boot;
+- Telegram session preservation plan without concurrent session use;
+- repeatable tests against a disposable production-like copy;
+- rollback/abort behavior before any real production mutation.
 
-Real Telegram V3 E2E remains deferred until an isolated authorized V3 session exists.
+Production remains untouched until the migration is proven on an isolated copy.
