@@ -6,7 +6,7 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 9 — Observability and Operations
+Phase 10 — Fresh V3 Bootstrap and Runtime Carryover
 
 Status: COMPLETE / VERIFIED IN CI  
 Real Telegram sandbox proof: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE  
@@ -984,38 +984,85 @@ The external V3 pilot remains a controlled future validation step once an isolat
 - `backend/migrations/README.md`
 - `PROJECT_STATUS.md`
 
+## Phase 10 delivered
+
+### Clean database bootstrap
+
+Added a dedicated fresh-bootstrap path that:
+- creates the reference schema only when the database is empty;
+- upgrades Alembic through the current V3 head;
+- creates only the minimum Account/Project/TelegramAccount identity rows;
+- is idempotent;
+- does not invoke the legacy importer.
+
+### Runtime essentials policy
+
+V3 carries forward only what is required to operate:
+- Telegram/API authentication configuration;
+- bot/control authentication configuration;
+- owner identity;
+- clean PostgreSQL connectivity;
+- persistent Telegram session storage;
+- Railway build/runtime structure.
+
+Old application data is intentionally excluded.
+
+### Clean-topology guarantee
+
+The Phase 10 CI gate creates a second empty PostgreSQL database and runs the bootstrap twice.
+
+After bootstrap:
+- Accounts: 1;
+- Projects: 1;
+- TelegramAccounts: 1;
+- Sources: 0;
+- Destinations: 0;
+- SourceRoutes: 0.
+
+This proves V3 can start without importing V1/V2 topology or operational history.
+
+## Phase 10 verification evidence
+
+Verified code head:
+
+`5c5552debb31a004b32ffaa07f520fbd9037d383`
+
+GitHub Actions:
+- Run ID: `38063901338`
+- Conclusion: `success`
+
+Passed:
+- focused V3 tests: 63 passed;
+- full non-integration suite: 141 passed, 31 deselected;
+- Ruff: all checks passed;
+- compileall;
+- fresh empty-database bootstrap and idempotency check;
+- normal migration roundtrip;
+- PostgreSQL integration: 30 passed;
+- V3 CLI;
+- Docker build.
+
+Documentation:
+- `docs/v3-phase10-clean-bootstrap.md`
+
+## Phase 10 boundary
+
+No production deployment or production-database reset occurred.
+
+The production Telegram session remains owned by V2. It will only be handed to V3 during controlled cutover after V2 stops. A separate authorized session is still required for the isolated real-Telegram pilot.
+
 ## Next phase
 
-Phase 10 — Fresh V3 Bootstrap + Secret/Key Carryover
-
-Decision:
-- V1/V2 application data will NOT be migrated.
-- old sources, destinations, routes, profiles, queue history, content, attempts and operational records are disposable.
-- V3 will start with a clean application database and fresh topology.
-- only the existing runtime credentials/keys required by Telegram/control/publishing are carried forward.
-- the authorized Telegram user session is treated as sensitive authentication state and may be preserved for final cutover, but it must never be used concurrently by V2 and V3.
-
-Carryover scope:
-- Telegram API application credentials;
-- Bot token;
-- owner Telegram id;
-- fresh database connection for V3;
-- fresh V3 account and Telegram-account identifiers created during bootstrap;
-- V3 session path when the approved session is attached at cutover.
-
-Explicitly excluded:
-- all V2_* runtime identifiers/settings;
-- V1/V2 business/application rows;
-- historical content/queue/publication data;
-- old brand/content settings as migration inputs.
+Phase 11 — End-to-End Telegram Pilot
 
 Required work:
-- build a clean V3 bootstrap/cutover checklist;
-- verify required credential names are present without exposing values;
-- provision a clean V3 database/schema;
-- bootstrap fresh Account/Project/TelegramAccount rows and generate V3 identifiers;
-- prepare session handoff with no concurrent V2/V3 ownership;
-- verify V3 starts without any V2 data dependency;
-- keep rollback by leaving the current V2 production deployment unchanged until the pilot/cutover gate.
+- use an isolated authorized V3 Telegram session;
+- configure a clean test source/destination topology through Control Bot V3;
+- prove text, photo, video, document, audio/voice and supported albums;
+- prove multi-source/multi-target behavior;
+- prove exact/similar-content dedup behavior;
+- prove restart/reconnect/live-only behavior;
+- prove target permission failure and retry/FloodWait paths;
+- record source-to-target evidence without exposing message content or credentials.
 
-Production remains untouched until the clean V3 bootstrap and pilot are verified.
+Production remains V2 until the Phase 11 pilot is successful and Phase 12 cutover is explicitly approved.
