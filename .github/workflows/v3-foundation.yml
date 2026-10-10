@@ -68,6 +68,19 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
+      - name: Fresh V3 database bootstrap
+        run: |
+          createdb -h 127.0.0.1 -U relay telegram_relay_v3_clean
+          FRESH_DATABASE_URL="${DATABASE_URL%/telegram_relay}/telegram_relay_v3_clean"
+          DATABASE_URL="$FRESH_DATABASE_URL" python scripts/bootstrap_v3.py > /tmp/v3-bootstrap-first.json
+          DATABASE_URL="$FRESH_DATABASE_URL" python scripts/bootstrap_v3.py > /tmp/v3-bootstrap-second.json
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM accounts')" = "1"
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM projects')" = "1"
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM telegram_accounts')" = "1"
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM sources')" = "0"
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM destinations')" = "0"
+          test "$(psql -h 127.0.0.1 -U relay -d telegram_relay_v3_clean -Atc 'SELECT count(*) FROM source_routes')" = "0"
+
       - name: Bootstrap V2 reference schema
         run: psql -h 127.0.0.1 -U relay -d telegram_relay -f db/schema.sql
       - name: V3 migration roundtrip
@@ -87,6 +100,7 @@ jobs:
           tests/integration/test_v3_publisher_postgres.py
           tests/integration/test_v3_control_postgres.py
           tests/integration/test_v3_observability_postgres.py
+          tests/integration/test_v3_bootstrap_postgres.py
       - name: V3 CLI
         run: python -m app.v3 --help
       - name: Docker build
