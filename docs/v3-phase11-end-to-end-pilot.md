@@ -1,7 +1,7 @@
 # V3 Phase 11 — End-to-End Pilot
 
 Date: 2026-10-10  
-Status: PRE-PILOT IMPLEMENTATION READY / REAL TELEGRAM EVIDENCE REQUIRED
+Status: PRE-PILOT VERIFIED IN CI / REAL TELEGRAM EVIDENCE REQUIRED
 
 ## Goal
 
@@ -100,3 +100,28 @@ The Phase 12 checklist is prepared at:
 `docs/v3-phase12-cutover-checklist.md`
 
 It is not authorization to deploy.
+
+
+## CI verification evidence
+
+Verified code head:
+
+`1a0008295046957bd06a55c7c810f5c90c5aeb36`
+
+GitHub Actions:
+- Run ID: `38065512375`
+- Conclusion: `success`
+
+Passed:
+- focused V3 tests: 63 passed;
+- full non-integration suite: 141 passed, 33 deselected;
+- Ruff: all checks passed;
+- compileall;
+- fresh V3 database bootstrap;
+- migration roundtrip;
+- PostgreSQL integration including the full pre-pilot E2E gate: 32 passed;
+- explicit Telegram target permission failure behavior;
+- V3 CLI;
+- Docker build.
+
+The real provider gate remains intentionally open.
