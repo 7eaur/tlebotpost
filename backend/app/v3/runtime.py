@@ -109,6 +109,7 @@ class RuntimeV3:
                 album_window_seconds=settings.ingestion.album_window_seconds,
                 reconnect_delays=settings.ingestion.reconnect_delays,
                 on_registration=processor.process_registration,
+                allow_unauthorized_start=(settings.control is not None),
             )
             components.append(ingestion_component)
             if settings.publisher is not None:
@@ -148,7 +149,11 @@ class RuntimeV3:
                     )
                 )
             if settings.control is not None:
-                from app.v3.control import ControlBotV3, ControlServiceV3
+                from app.v3.control import (
+                    ControlBotV3,
+                    ControlServiceV3,
+                    SessionEnrollmentServiceV3,
+                )
 
                 control_service = ControlServiceV3(
                     session_factory=database.session_factory,
@@ -159,12 +164,18 @@ class RuntimeV3:
                     queue=queue,
                     telegram_connected=lambda: adapter.is_connected,
                 )
+                enrollment = SessionEnrollmentServiceV3(
+                    session=adapter.session,
+                    connected=lambda: adapter.is_connected,
+                    on_authorized=ingestion_component.start,
+                )
                 components.append(
                     ControlBotV3(
                         token=settings.control.bot_token,
                         owner_id=settings.control.owner_id,
                         service=control_service,
                         observability=observability,
+                        enrollment=enrollment,
                     )
                 )
         return cls(
