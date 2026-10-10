@@ -1086,10 +1086,10 @@ Existing mandatory integration in the same workflow continues to verify RetryAft
 
 Verified code head:
 
-`1a0008295046957bd06a55c7c810f5c90c5aeb36`
+`ec27a0f1f7cf71a72f9aea9ca49535fcdc8c6a96`
 
 GitHub Actions:
-- Run ID: `38065512375`
+- Run ID: `38065697906`
 - Conclusion: `success`
 
 Passed:
@@ -1102,6 +1102,10 @@ Passed:
 - PostgreSQL integration including pre-pilot E2E: 32 passed;
 - V3 CLI;
 - Docker build.
+
+### Isolated pilot session tooling
+
+Added `scripts/register_v3_session.py` to create a separate authorized V3 Telegram session without exposing login secrets in logs or Git.
 
 ### Real Telegram gate
 
