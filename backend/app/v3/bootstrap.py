@@ -47,7 +47,10 @@ async def bootstrap_v3_identity(
                 await session.flush()
             else:
                 if account_id is not None and account.id != account_id:
-                    raise ValueError("configured V3 account id does not match existing bootstrap account")
+                    raise ValueError(
+                        "configured V3 account id does not match "
+                        "existing bootstrap account"
+                    )
                 account.name = account_name
 
             project = await session.scalar(
@@ -96,7 +99,8 @@ async def bootstrap_v3_identity(
                     and telegram_account.id != telegram_account_id
                 ):
                     raise ValueError(
-                        "configured V3 Telegram account id does not match existing bootstrap account"
+                        "configured V3 Telegram account id does not match "
+                        "existing bootstrap account"
                     )
                 telegram_account.session_key = session_key
 
