@@ -30,6 +30,8 @@ async def bootstrap_v3_identity(
     project_slug: str = "relay",
     telegram_label: str = "primary",
     session_key: str = "v3-primary",
+    account_id: uuid.UUID | None = None,
+    telegram_account_id: uuid.UUID | None = None,
 ) -> BootstrapResult:
     """Create only the minimum V3 identity rows, idempotently."""
 
@@ -40,10 +42,12 @@ async def bootstrap_v3_identity(
             )
             created_account = account is None
             if account is None:
-                account = Account(name=account_name, slug=account_slug)
+                account = Account(id=account_id, name=account_name, slug=account_slug)
                 session.add(account)
                 await session.flush()
             else:
+                if account_id is not None and account.id != account_id:
+                    raise ValueError("configured V3 account id does not match existing bootstrap account")
                 account.name = account_name
 
             project = await session.scalar(
@@ -79,6 +83,7 @@ async def bootstrap_v3_identity(
             created_telegram_account = telegram_account is None
             if telegram_account is None:
                 telegram_account = TelegramAccount(
+                    id=telegram_account_id,
                     account_id=account.id,
                     label=telegram_label,
                     session_key=session_key,
@@ -86,6 +91,13 @@ async def bootstrap_v3_identity(
                 session.add(telegram_account)
                 await session.flush()
             else:
+                if (
+                    telegram_account_id is not None
+                    and telegram_account.id != telegram_account_id
+                ):
+                    raise ValueError(
+                        "configured V3 Telegram account id does not match existing bootstrap account"
+                    )
                 telegram_account.session_key = session_key
 
             return BootstrapResult(
