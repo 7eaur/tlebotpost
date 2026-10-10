@@ -21,6 +21,8 @@ async def test_v3_identity_bootstrap_is_idempotent_and_minimal():
     suffix = uuid.uuid4().hex[:10]
     account_slug = f"bootstrap-{suffix}"
     account_id = None
+    configured_account_id = uuid.uuid4()
+    configured_telegram_account_id = uuid.uuid4()
 
     try:
         first = await bootstrap_v3_identity(
@@ -31,6 +33,8 @@ async def test_v3_identity_bootstrap_is_idempotent_and_minimal():
             project_slug="relay",
             telegram_label="primary",
             session_key=f"session-{suffix}",
+            account_id=configured_account_id,
+            telegram_account_id=configured_telegram_account_id,
         )
         account_id = first.account_id
 
@@ -42,8 +46,12 @@ async def test_v3_identity_bootstrap_is_idempotent_and_minimal():
             project_slug="relay",
             telegram_label="primary",
             session_key=f"session-{suffix}",
+            account_id=configured_account_id,
+            telegram_account_id=configured_telegram_account_id,
         )
 
+        assert first.account_id == configured_account_id
+        assert first.telegram_account_id == configured_telegram_account_id
         assert second.account_id == first.account_id
         assert second.project_id == first.project_id
         assert second.telegram_account_id == first.telegram_account_id
