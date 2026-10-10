@@ -20,4 +20,8 @@ __all__ = [
     "ProjectView",
     "RouteView",
     "SourceView",
+    "SessionEnrollmentError",
+    "SessionEnrollmentServiceV3",
 ]
+
+from .session_enrollment import SessionEnrollmentError, SessionEnrollmentServiceV3
