@@ -61,6 +61,7 @@ class TelegramIngestionComponent:
         album_window_seconds: float = 0.8,
         reconnect_delays: tuple[float, ...] = (5.0, 15.0, 30.0, 60.0),
         on_registration: RegistrationCallback | None = None,
+        allow_unauthorized_start: bool = False,
     ) -> None:
         if album_window_seconds <= 0:
             raise ValueError("album_window_seconds must be positive")
@@ -72,6 +73,7 @@ class TelegramIngestionComponent:
         self.telegram_account_id = telegram_account_id
         self.reconnect_delays = reconnect_delays
         self.on_registration = on_registration
+        self.allow_unauthorized_start = allow_unauthorized_start
         self._snapshots = SourceEventSnapshotStore()
         self._collector = AlbumCollectorV3(
             self._persist_source_event,
@@ -104,6 +106,16 @@ class TelegramIngestionComponent:
             if self.adapter.is_connected:
                 await self.adapter.disconnect()
             await self._record_connect_failure_safely(exc)
+            if self.allow_unauthorized_start and isinstance(
+                exc,
+                TelegramSessionNotAuthorized,
+            ):
+                self._logger.warning(
+                    "V3 Telegram session requires authorization; control plane remains available"
+                )
+                self._running = False
+                self._accept_events = False
+                return
             raise
         self._accept_events = True
         self._running = True
