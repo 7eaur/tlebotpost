@@ -13,10 +13,16 @@ from app.v3.observability import ObservabilityError, ObservabilityServiceV3
 
 from .errors import ControlServiceError
 from .service import ControlServiceV3
+from .session_enrollment import SessionEnrollmentError, SessionEnrollmentServiceV3
 
 _COMMANDS = (
     ("start", "القائمة والمساعدة"),
     ("status", "حالة V3 والطابور"),
+    ("session", "حالة جلسة Telegram"),
+    ("session_begin", "بدء تسجيل جلسة Telegram"),
+    ("session_code", "إرسال كود تسجيل الجلسة"),
+    ("session_password", "إرسال كلمة مرور التحقق بخطوتين"),
+    ("session_cancel", "إلغاء تسجيل الجلسة"),
     ("health", "حالة الاتصال وآخر خطأ"),
     ("projects", "عرض المشاريع"),
     ("sources", "عرض المصادر"),
@@ -52,6 +58,7 @@ class ControlBotV3:
         owner_id: int,
         service: ControlServiceV3,
         observability: ObservabilityServiceV3 | None = None,
+        enrollment: SessionEnrollmentServiceV3 | None = None,
     ) -> None:
         if not token.strip():
             raise ValueError("control bot token is required")
@@ -61,6 +68,7 @@ class ControlBotV3:
         self.owner_id = owner_id
         self.service = service
         self.observability = observability
+        self.enrollment = enrollment
         self.application: Application | None = None
         self._logger = logging.getLogger(__name__)
 
@@ -71,6 +79,11 @@ class ControlBotV3:
             "help": self.start_command,
             "status": self.status_command,
             "health": self.status_command,
+            "session": self.session_command,
+            "session_begin": self.session_begin_command,
+            "session_code": self.session_code_command,
+            "session_password": self.session_password_command,
+            "session_cancel": self.session_cancel_command,
             "projects": self.projects_command,
             "sources": self.sources_command,
             "destinations": self.destinations_command,
@@ -134,6 +147,9 @@ class ControlBotV3:
             update,
             "🛠 Telegram Relay V3\n\n"
             "الحالة: /status\n"
+            "الجلسة: /session\n"
+            "تسجيل جلسة: /session_begin +967...\n"
+            "ثم /session_code CODE، وإذا طُلب: /session_password PASSWORD\n"
             "المشاريع: /projects\n"
             "المصادر: /sources\n"
             "الوجهات: /destinations\n"
@@ -149,6 +165,125 @@ class ControlBotV3:
             "Metrics: /metrics\n"
             "تشخيص Job: /job JOB_UUID",
         )
+
+    async def session_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.enrollment is None:
+            await self._reply(update, "تسجيل الجلسة أثناء التشغيل غير مهيأ.")
+            return
+        status = await self.service.status()
+        if status.telegram_connected:
+            state = "متصلة وجاهزة"
+        elif self.enrollment.awaiting_password:
+            state = "بانتظار كلمة مرور التحقق بخطوتين"
+        elif self.enrollment.pending:
+            state = "بانتظار كود Telegram"
+        else:
+            state = "غير متصلة"
+        await self._reply(
+            update,
+            "🔐 جلسة Telegram\n"
+            f"• الحالة: {state}\n"
+            "• بدء التسجيل: /session_begin +967...\n"
+            "• الكود: /session_code CODE\n"
+            "• 2FA: /session_password PASSWORD\n"
+            "• إلغاء: /session_cancel",
+        )
+
+    async def session_begin_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.enrollment is None:
+            await self._reply(update, "تسجيل الجلسة أثناء التشغيل غير مهيأ.")
+            return
+        if len(context.args) != 1:
+            await self._reply(update, "الاستخدام: /session_begin +967XXXXXXXXX")
+            return
+        phone = context.args[0]
+        await self._delete_sensitive_input(update)
+        try:
+            await self.enrollment.begin(phone)
+        except Exception as exc:
+            await self._operation_error(update, exc)
+            return
+        await self._reply(
+            update,
+            "✅ تم طلب كود Telegram. أرسله الآن باستخدام /session_code CODE. "
+            "سيتم حذف رسالة الكود بعد استلامها.",
+        )
+
+    async def session_code_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.enrollment is None:
+            await self._reply(update, "تسجيل الجلسة أثناء التشغيل غير مهيأ.")
+            return
+        if len(context.args) != 1:
+            await self._reply(update, "الاستخدام: /session_code CODE")
+            return
+        code = context.args[0]
+        await self._delete_sensitive_input(update)
+        try:
+            result = await self.enrollment.submit_code(code)
+        except Exception as exc:
+            await self._operation_error(update, exc)
+            return
+        if result == "password_required":
+            await self._reply(
+                update,
+                "🔐 الحساب يستخدم التحقق بخطوتين. أرسل /session_password PASSWORD. "
+                "سيتم حذف الرسالة بعد استلامها.",
+            )
+            return
+        await self._reply(update, "✅ تم اعتماد جلسة Telegram وبدء اتصال V3.")
+
+    async def session_password_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.enrollment is None:
+            await self._reply(update, "تسجيل الجلسة أثناء التشغيل غير مهيأ.")
+            return
+        if len(context.args) != 1:
+            await self._reply(update, "الاستخدام: /session_password PASSWORD")
+            return
+        password = context.args[0]
+        await self._delete_sensitive_input(update)
+        try:
+            await self.enrollment.submit_password(password)
+        except Exception as exc:
+            await self._operation_error(update, exc)
+            return
+        await self._reply(update, "✅ تم اعتماد جلسة Telegram وبدء اتصال V3.")
+
+    async def session_cancel_command(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ) -> None:
+        if not await self._authorized(update):
+            return
+        if self.enrollment is None:
+            await self._reply(update, "تسجيل الجلسة أثناء التشغيل غير مهيأ.")
+            return
+        await self.enrollment.cancel()
+        await self._reply(update, "✅ تم إلغاء عملية تسجيل الجلسة.")
 
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._authorized(update):
@@ -579,12 +714,23 @@ class ControlBotV3:
         return True
 
     async def _operation_error(self, update: Update, exc: Exception) -> None:
-        if isinstance(exc, (ControlServiceError, ObservabilityError)):
+        if isinstance(exc, (ControlServiceError, ObservabilityError, SessionEnrollmentError)):
             message = _friendly_control_error(str(exc))
         else:
             self._logger.exception("V3 control command failed")
             message = "حدث خطأ داخلي. راجع السجل وحالة النظام."
         await self._reply(update, f"❌ {message}")
+
+    @staticmethod
+    async def _delete_sensitive_input(update: Update) -> None:
+        message = update.effective_message
+        if message is None:
+            return
+        try:
+            await message.delete()
+        except Exception:
+            # Best effort only. Never log the message body or command arguments.
+            return
 
     @staticmethod
     async def _reply(update: Update, text: str) -> None:
@@ -618,4 +764,14 @@ def _friendly_control_error(code: str) -> str:
         "publish_job_not_found": "PublishJob غير موجود في حساب V3.",
         "unsafe_event_detail_key": "تم رفض Event detail غير آمن.",
         "unsafe_event_detail_value": "تم رفض Event detail غير آمن.",
+        "session_already_connected": "جلسة Telegram متصلة بالفعل.",
+        "session_code_request_failed": "تعذر طلب كود Telegram. تحقق من الرقم وحاول مجددًا.",
+        "session_enrollment_not_started": "ابدأ أولًا باستخدام /session_begin.",
+        "session_code_invalid": "كود Telegram غير صالح أو انتهت صلاحيته.",
+        "session_password_not_expected": "كلمة مرور 2FA غير مطلوبة حاليًا.",
+        "session_password_invalid": "كلمة مرور التحقق بخطوتين غير صحيحة.",
+        "session_login_failed": "تعذر إكمال تسجيل جلسة Telegram.",
+        "session_authorized_runtime_start_failed": (
+            "تم اعتماد الجلسة لكن تعذر بدء الاستقبال. افحص /status ثم /reload."
+        ),
     }.get(code, code)
