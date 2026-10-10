@@ -986,17 +986,36 @@ The external V3 pilot remains a controlled future validation step once an isolat
 
 ## Next phase
 
-Phase 10 — Migration
+Phase 10 — Fresh V3 Bootstrap + Secret/Key Carryover
+
+Decision:
+- V1/V2 application data will NOT be migrated.
+- old sources, destinations, routes, profiles, queue history, content, attempts and operational records are disposable.
+- V3 will start with a clean application database and fresh topology.
+- only the existing runtime credentials/keys required by Telegram/control/publishing are carried forward.
+- the authorized Telegram user session is treated as sensitive authentication state and may be preserved for final cutover, but it must never be used concurrently by V2 and V3.
+
+Carryover scope:
+- Telegram API application credentials;
+- Bot token;
+- owner Telegram id;
+- fresh database connection for V3;
+- fresh V3 account and Telegram-account identifiers created during bootstrap;
+- V3 session path when the approved session is attached at cutover.
+
+Explicitly excluded:
+- all V2_* runtime identifiers/settings;
+- V1/V2 business/application rows;
+- historical content/queue/publication data;
+- old brand/content settings as migration inputs.
 
 Required work:
-- explicit one-time V1/V2 -> V3 migration command/tooling;
-- dry-run first;
-- account/project/Telegram/source/destination/route mapping;
-- profile/state mapping where applicable;
-- count and invariant verification;
-- no automatic import at normal V3 boot;
-- Telegram session preservation plan without concurrent session use;
-- repeatable tests against a disposable production-like copy;
-- rollback/abort behavior before any real production mutation.
+- build a clean V3 bootstrap/cutover checklist;
+- verify required credential names are present without exposing values;
+- provision a clean V3 database/schema;
+- bootstrap fresh Account/Project/TelegramAccount rows and generate V3 identifiers;
+- prepare session handoff with no concurrent V2/V3 ownership;
+- verify V3 starts without any V2 data dependency;
+- keep rollback by leaving the current V2 production deployment unchanged until the pilot/cutover gate.
 
-Production remains untouched until the migration is proven on an isolated copy.
+Production remains untouched until the clean V3 bootstrap and pilot are verified.
