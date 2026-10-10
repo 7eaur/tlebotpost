@@ -300,9 +300,20 @@ Gate: PASSED in GitHub Actions Run `38063901338` at code head `5c5552debb31a004b
 
 The clean-database gate runs bootstrap twice and confirms exactly one Account/Project/TelegramAccount and zero Sources/Destinations/SourceRoutes.
 
-### Phase 11 — End-to-end pilot
-Test text, image, video, document, album, multi-source, multi-target, exact duplicate, similar content, restart, reconnect, permission failure and retry/FloodWait.
-Gate: recorded source-to-target evidence for all critical paths.
+### Phase 11 — End-to-end pilot — PRE-PILOT VERIFIED IN CI / REAL PILOT PENDING
+Implemented and verified in CI/PostgreSQL:
+- complete ingestion -> processing -> dedup -> queue -> publisher path;
+- one-source/two-target fan-out;
+- duplicate suppression;
+- photo/video album path;
+- exact media acquisition;
+- restart/rebaseline live-only behavior;
+- target permission failure;
+- existing RetryAfter/partial/unknown-outcome reliability coverage.
+
+CI gate: PASSED in GitHub Actions Run `38065512375` at code head `1a0008295046957bd06a55c7c810f5c90c5aeb36`.
+
+Remaining gate: recorded real Telegram source-to-target evidence using a separate authorized V3 session.
 
 ### Phase 12 — Production cutover and cleanup
 Deploy V3, observe, switch production, keep rollback point, archive obsolete V1/V2 runtime code, update all docs.
