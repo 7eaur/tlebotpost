@@ -89,7 +89,7 @@ jobs:
           alembic current
           alembic downgrade base
           alembic upgrade head
-      - name: V3 PostgreSQL through observability integration
+      - name: V3 PostgreSQL through pre-pilot end-to-end integration
         run: >-
           pytest -q
           tests/integration/test_v3_route_execution_postgres.py
@@ -101,6 +101,7 @@ jobs:
           tests/integration/test_v3_control_postgres.py
           tests/integration/test_v3_observability_postgres.py
           tests/integration/test_v3_bootstrap_postgres.py
+          tests/integration/test_v3_end_to_end_postgres.py
       - name: V3 CLI
         run: python -m app.v3 --help
       - name: Docker build
