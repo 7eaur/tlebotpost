@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import delete, select
-from telegram.error import BadRequest, RetryAfter
+from telegram.error import BadRequest, Forbidden, RetryAfter
 
 from app.db import Database
 from app.db.models import (
@@ -424,6 +424,52 @@ async def test_retry_after_is_the_only_safe_retry_after_external_publish_start(t
             assert stored_execution.status is RouteExecutionStatus.QUEUED
             assert attempt is not None
             assert attempt.status is AttemptStatus.RETRYING
+    finally:
+        if account_id is not None:
+            async with database.transaction() as session:
+                await session.execute(delete(Account).where(Account.id == account_id))
+        await database.close()
+
+
+@pytest.mark.asyncio
+async def test_forbidden_target_fails_permanently_without_retry(tmp_path):
+    if not (os.getenv("TEST_DATABASE_URL") or os.getenv("DATABASE_URL")):
+        pytest.skip("TEST_DATABASE_URL or DATABASE_URL is required")
+    database = Database.from_env()
+    account_id = None
+    try:
+        async with database.transaction() as session:
+            account, _source, _destination, execution, job = await seed_job(
+                session,
+                rendered_text="رسالة صلاحيات",
+            )
+            account_id = account.id
+            job_id = job.id
+            execution_id = execution.id
+
+        bot = FakeBot(fail_on_call=1, failure=Forbidden("bot cannot post"))
+        queue, _stager, worker = make_worker(
+            database, account_id, tmp_path, bot, FakeUserAdapter()
+        )
+        assert await worker.run_once() == 1
+
+        async with database.session() as session:
+            stored_job = await session.get(PublishJob, job_id)
+            stored_execution = await session.get(RouteExecution, execution_id)
+            attempt = await session.scalar(
+                select(PublicationAttempt).where(
+                    PublicationAttempt.publish_job_id == job_id
+                )
+            )
+            assert stored_job is not None
+            assert stored_job.status is JobStatus.FAILED
+            assert stored_job.last_error_code == "telegram_forbidden"
+            assert stored_job.next_attempt_at is None
+            assert stored_execution is not None
+            assert stored_execution.status is RouteExecutionStatus.FAILED
+            assert attempt is not None
+            assert attempt.status is AttemptStatus.FAILED
+            assert await queue.claim_due(worker_id="other") == []
     finally:
         if account_id is not None:
             async with database.transaction() as session:
