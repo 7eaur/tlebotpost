@@ -6,9 +6,9 @@ Production baseline: `main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf`
 
 ## Current phase
 
-Phase 10 — Fresh V3 Bootstrap and Runtime Carryover
+Phase 11 — End-to-End Telegram Pilot
 
-Status: COMPLETE / VERIFIED IN CI  
+Status: PRE-PILOT VERIFIED IN CI / REAL TELEGRAM PILOT PENDING  
 Real Telegram sandbox proof: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE  
 External real-Telegram V3 pilot: DEFERRED UNTIL AN ISOLATED V3 SESSION IS AVAILABLE
 
@@ -1051,18 +1051,68 @@ No production deployment or production-database reset occurred.
 
 The production Telegram session remains owned by V2. It will only be handed to V3 during controlled cutover after V2 stops. A separate authorized session is still required for the isolated real-Telegram pilot.
 
+## Phase 11 pre-pilot delivered
+
+Added a full PostgreSQL-backed V3 E2E gate that wires the actual production components:
+
+```text
+TelegramIngestionComponent
+  -> ContentProcessingCoordinator
+  -> DeduplicationCoordinator
+  -> PublishQueueV3
+  -> TelegramPublisherV3
+  -> PublishedMessage
+```
+
+Fake adapters replace only the external Telegram network.
+
+Verified in one integrated scenario:
+- live startup baseline;
+- one source fan-out to two destinations;
+- full text publication;
+- durable queue/publication state;
+- same content under a new Telegram message id becomes duplicate and is not republished;
+- grouped photo/video album remains one logical event per destination;
+- exact source-message media acquisition;
+- restart/rebaseline preserves live-only behavior;
+- older-than-baseline messages are ignored;
+- new post-baseline messages publish normally;
+- SourceCheckpoint seen/committed progression;
+- target permission denial fails permanently without blind retry.
+
+Existing mandatory integration in the same workflow continues to verify RetryAfter/FloodWait, partial-publish fail-closed, unknown publish outcomes, lease recovery and retry limits.
+
+### Phase 11 CI evidence
+
+Verified code head:
+
+`1a0008295046957bd06a55c7c810f5c90c5aeb36`
+
+GitHub Actions:
+- Run ID: `38065512375`
+- Conclusion: `success`
+
+Passed:
+- focused V3 tests: 63 passed;
+- full non-integration suite: 141 passed, 33 deselected;
+- Ruff;
+- compileall;
+- clean V3 bootstrap;
+- migration roundtrip;
+- PostgreSQL integration including pre-pilot E2E: 32 passed;
+- V3 CLI;
+- Docker build.
+
+### Real Telegram gate
+
+Still required before Phase 11 can be marked COMPLETE.
+
+It needs a separate authorized V3 Telegram session and controlled source/target chats.
+
+The production V2 session remains untouched and must not run concurrently with V3.
+
 ## Next phase
 
-Phase 11 — End-to-End Telegram Pilot
+Phase 11 external Telegram pilot, then Phase 12 production cutover.
 
-Required work:
-- use an isolated authorized V3 Telegram session;
-- configure a clean test source/destination topology through Control Bot V3;
-- prove text, photo, video, document, audio/voice and supported albums;
-- prove multi-source/multi-target behavior;
-- prove exact/similar-content dedup behavior;
-- prove restart/reconnect/live-only behavior;
-- prove target permission failure and retry/FloodWait paths;
-- record source-to-target evidence without exposing message content or credentials.
-
-Production remains V2 until the Phase 11 pilot is successful and Phase 12 cutover is explicitly approved.
+No production cutover is authorized until real Telegram source-to-target evidence passes.
