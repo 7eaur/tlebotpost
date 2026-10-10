@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import uuid
 from pathlib import Path
 
 import asyncpg
@@ -64,6 +66,8 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
             project_slug=args.project_slug,
             telegram_label=args.telegram_label,
             session_key=args.session_key,
+            account_id=_optional_uuid_env("V3_ACCOUNT_ID"),
+            telegram_account_id=_optional_uuid_env("V3_TELEGRAM_ACCOUNT_ID"),
         )
     finally:
         await database.close()
@@ -78,6 +82,11 @@ async def run(args: argparse.Namespace) -> dict[str, object]:
         "created_telegram_account": result.created_telegram_account,
         "legacy_data_imported": False,
     }
+
+
+def _optional_uuid_env(name: str) -> uuid.UUID | None:
+    raw = os.getenv(name, "").strip()
+    return uuid.UUID(raw) if raw else None
 
 
 def main() -> None:
