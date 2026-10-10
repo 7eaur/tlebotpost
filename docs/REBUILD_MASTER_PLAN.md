@@ -1,6 +1,6 @@
 # Telegram Relay — Comprehensive Rebuild Master Plan
 
-Status: Phases 0-9 complete in CI; Phase 10 next (real Telegram V3 pilot deferred until isolated session)
+Status: Phases 0-10 complete in CI; Phase 11 next (real Telegram V3 pilot deferred until isolated session)
 Branch: rebuild/v3-foundation-20261007
 Baseline: main@0990fb62b97c09a3fa44e41fe3c087bb5d3fd2cf
 Date: 2026-10-08
@@ -286,9 +286,19 @@ Gate: PASSED in GitHub Actions Run `37861627737` at code head `f3f11a1986b1d6d97
 
 The regression suite seeds sensitive message/error text in PostgreSQL and proves it is absent from operator job diagnostics. Structured-log tests prove configured tokens/passwords are redacted and arbitrary LogRecord extras are not serialized.
 
-### Phase 10 — Migration
-One-time V1/V2 migration with dry-run, data mapping, count verification and Telegram session preservation.
-Gate: repeatable on a copy before production.
+### Phase 10 — Fresh V3 bootstrap — COMPLETE / VERIFIED IN CI
+Implemented:
+- clean PostgreSQL bootstrap from an empty database;
+- repository reference schema installation when absent;
+- Alembic upgrade through the current V3 head;
+- idempotent creation of the minimum Account/Project/TelegramAccount identity;
+- zero V1/V2 application-data import;
+- explicit exclusion of legacy topology/history;
+- preserved runtime/session handoff plan only for what V3 actually needs.
+
+Gate: PASSED in GitHub Actions Run `38063901338` at code head `5c5552debb31a004b32ffaa07f520fbd9037d383`.
+
+The clean-database gate runs bootstrap twice and confirms exactly one Account/Project/TelegramAccount and zero Sources/Destinations/SourceRoutes.
 
 ### Phase 11 — End-to-end pilot
 Test text, image, video, document, album, multi-source, multi-target, exact duplicate, similar content, restart, reconnect, permission failure and retry/FloodWait.
@@ -323,10 +333,11 @@ Completed:
 8. build durable queue handoff, leases, retries and crash recovery.
 
 Next:
-1. implement Phase 10 one-time migration tooling with dry-run/count verification;
-2. validate migration against an isolated production-like copy;
-3. run the isolated real-Telegram pilot only with a separate authorized V3 session;
-4. leave current production untouched until V3 proves the critical path and reaches the formal cutover gate.
+1. run Phase 11 with a separate authorized V3 Telegram session;
+2. configure a clean pilot topology through Control Bot V3;
+3. prove the critical source-to-target text/media/album/retry/restart paths;
+4. leave current production untouched until the pilot succeeds;
+5. perform Phase 12 only after explicit cutover approval.
 
 ## 14. Definition of done
 
