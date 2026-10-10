@@ -311,7 +311,7 @@ Implemented and verified in CI/PostgreSQL:
 - target permission failure;
 - existing RetryAfter/partial/unknown-outcome reliability coverage.
 
-CI gate: PASSED in GitHub Actions Run `38065512375` at code head `1a0008295046957bd06a55c7c810f5c90c5aeb36`.
+CI gate: PASSED in GitHub Actions Run `38065697906` at code head `ec27a0f1f7cf71a72f9aea9ca49535fcdc8c6a96`.
 
 Remaining gate: recorded real Telegram source-to-target evidence using a separate authorized V3 session.
 
