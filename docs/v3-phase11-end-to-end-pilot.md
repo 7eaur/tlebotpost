@@ -106,10 +106,10 @@ It is not authorization to deploy.
 
 Verified code head:
 
-`1a0008295046957bd06a55c7c810f5c90c5aeb36`
+`ec27a0f1f7cf71a72f9aea9ca49535fcdc8c6a96`
 
 GitHub Actions:
-- Run ID: `38065512375`
+- Run ID: `38065697906`
 - Conclusion: `success`
 
 Passed:
@@ -125,3 +125,21 @@ Passed:
 - Docker build.
 
 The real provider gate remains intentionally open.
+
+
+## Isolated-session registration
+
+Added:
+
+`python scripts/register_v3_session.py`
+
+This command:
+- uses the existing TelegramSession abstraction;
+- reads API credentials from the environment;
+- prompts interactively for the pilot account;
+- hides login code and two-step password input;
+- refuses to overwrite an existing session file;
+- stores the resulting Telethon session with restricted file permissions;
+- never prints OTP, password or API credentials.
+
+The generated pilot session must be separate from the production V2 session.
